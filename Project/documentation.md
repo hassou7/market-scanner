@@ -13,38 +13,46 @@ A comprehensive market scanner for cryptocurrency exchanges that combines VSA (V
 7. [VSA Strategies](#vsa-strategies)
 8. [Custom Strategies](#custom-strategies)
 9. [Multi-User Support](#multi-user-support)
-10. [Adding New Exchanges](#adding-new-exchanges)
-11. [Adding New Strategies](#adding-new-strategies)
-12. [Troubleshooting](#troubleshooting)
+10. [AWS Service Setup](#aws-service-setup)
+11. [Adding New Exchanges](#adding-new-exchanges)
+12. [Adding New Strategies](#adding-new-strategies)
+13. [Troubleshooting](#troubleshooting)
 
 ## Project Overview
 
 This project is a cryptocurrency market scanner designed to detect profitable trading opportunities across multiple exchanges and timeframes. It employs both traditional Volume Spread Analysis (VSA) techniques and custom pattern detection algorithms like volume surge, weak uptrend, and pin down pattern detection.
 
-The scanner supports multiple exchanges including Binance (spot and futures), Gate.io, KuCoin, MEXC, and Bybit. It can analyze various timeframes (1w, 2d, 1d, 4h) and send notifications via Telegram to multiple users.
+The scanner supports multiple exchanges including Binance (spot and futures), Bybit (spot and futures), Gate.io (spot and futures), KuCoin, and MEXC (spot and futures). It can analyze various timeframes (1w, 2d, 1d, 4h) and send notifications via Telegram to multiple users.
 
 ## Features
 
-- **Multiple Exchange Support**: Scan Binance (spot and futures), Gate.io, KuCoin, MEXC, and Bybit markets
+- **Multiple Exchange Support**: Scan Binance, Bybit, Gate.io, KuCoin, and MEXC markets (both spot and futures where available)
 - **Multiple Timeframes**: Analyze 1w, 2d, 1d, and 4h timeframes
 - **VSA Strategies**:
   - Breakout Bar for trend starts
   - Stop Bar for trend reversals
   - Reversal Bar for potential reversals
+  - Start Bar for new trend identification
 - **Custom Strategies**:
   - Volume Surge detection
-  - Weak Uptrend detection with 5 pattern types
+  - Weak Uptrend detection
   - Pin Down pattern for bearish continuation
 - **Telegram Integration**: Send alerts to multiple users and channels
 - **Modular Architecture**: Easy to add new exchanges and strategies
 - **Batch Processing**: Efficiently scan hundreds of markets in parallel
 - **Volume Filtering**: Focus on markets with significant trading volume
 - **Jupyter Notebook Interface**: Run scans interactively and visualize results
+- **AWS Service**: Run as a scheduled service on AWS EC2
 
 ## Project Structure
 
 ```
-project/
+Project/
+├── aws_scanner/               # AWS service components
+│   ├── aws_scanner_service.py   # Service script
+│   ├── market-scanner.service   # Systemd service configuration
+│   ├── setup_aws_service.sh     # Setup script
+│   └── logs/                    # Service logs
 ├── breakout_vsa/               # VSA pattern detection logic
 │   ├── __init__.py             # Main imports
 │   ├── core.py                 # Core VSA detector functions
@@ -53,7 +61,8 @@ project/
 │       ├── __init__.py
 │       ├── breakout_bar.py     # Breakout Bar strategy parameters
 │       ├── stop_bar.py         # Stop Bar strategy parameters
-│       └── reversal_bar.py     # Reversal Bar strategy parameters
+│       ├── reversal_bar.py     # Reversal Bar strategy parameters
+│       └── start_bar.py        # Start Bar strategy parameters
 ├── custom_strategies/          # Custom pattern detection
 │   ├── __init__.py             # Main imports
 │   ├── volume_surge.py         # Volume surge detection
@@ -62,29 +71,30 @@ project/
 ├── exchanges/                  # Exchange API clients
 │   ├── __init__.py
 │   ├── base_client.py          # Base exchange client class
-│   ├── binance_futures_client.py  # Binance Perpetuals client
+│   ├── binance_futures_client.py  # Binance Futures client
 │   ├── binance_spot_client.py  # Binance Spot client
-│   ├── bybit_client.py         # Bybit client
-│   ├── gateio_client.py        # Gate.io client
+│   ├── bybit_client.py         # Bybit Spot client
+│   ├── bybit_futures_client.py # Bybit Futures client
+│   ├── gateio_client.py        # Gate.io Spot client
+│   ├── gateio_futures_client.py # Gate.io Futures client
 │   ├── kucoin_client.py        # KuCoin client
-│   └── mexc_client.py          # MEXC client
+│   ├── mexc_client.py          # MEXC Spot client
+│   └── mexc_futures_client.py  # MEXC Futures client
 ├── scanner/                    # Market scanning logic
 │   ├── __init__.py
-│   ├── main.py                 # Scanner main functions
-│   ├── market_scanner.py       # VSA-based market scanner
-│   └── custom_scanner.py       # Custom strategy scanner
+│   └── main.py                 # Unified scanner for VSA and custom strategies
 ├── utils/                      # Utility functions and configuration
 │   ├── __init__.py
 │   └── config.py               # Configuration values
-└── vsa_and_custom_scanner.ipynb  # Jupyter notebook interface
+└── run_scanner.py              # Script to run scans
 ```
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/crypto-scanner.git
-cd crypto-scanner
+git clone https://github.com/hassou7/market-scanner.git
+cd market-scanner
 ```
 
 2. Install dependencies:
@@ -98,95 +108,116 @@ Required dependencies:
 - asyncio
 - aiohttp
 - python-telegram-bot
-- nest_asyncio (for Jupyter)
 - tqdm
-- jupyter (for notebook interface)
 
 ## Configuration
 
 ### Telegram Configuration
 
-Edit `utils/config.py` to configure your Telegram bots and users:
+To set up Telegram notifications, you'll need to create bot tokens and get chat IDs for each user.
+
+1. Create Telegram bots using [@BotFather](https://t.me/BotFather)
+2. Get your chat ID using [@userinfobot](https://t.me/userinfobot)
+3. Configure the tokens in your code
+
+Example configuration in a Jupyter notebook:
 
 ```python
-# Telegram tokens for different channels
-TELEGRAM_TOKENS = {
-    "volume_surge": "YOUR_VOLUME_SURGE_TOKEN",
-    "start_trend": "YOUR_START_TREND_TOKEN",
-    "weakening_trend": "YOUR_WEAKENING_TREND_TOKEN"
-}
-
-# Map strategies to default channels
-STRATEGY_CHANNELS = {
-    "breakout_bar": "start_trend",
-    "stop_bar": "weakening_trend",
-    "reversal_bar": "weakening_trend"
-}
-
-# Multiple users configuration
-TELEGRAM_USERS = {
-    "default": {
-        "chat_id": "YOUR_DEFAULT_CHAT_ID",
-        "name": "Your Name"
+# Telegram configuration for different strategies
+TELEGRAM_CONFIG = {
+    "volume_surge": {
+        "token": "YOUR_VOLUME_SURGE_TOKEN",
+        "chat_ids": ["YOUR_CHAT_ID"]
     },
-    "user1": {
-        "chat_id": "USER1_CHAT_ID",
-        "name": "User 1"
+    "start_bar": {
+        "token": "YOUR_START_BAR_TOKEN",
+        "chat_ids": ["YOUR_CHAT_ID"]
     },
-    # Add more users as needed
-}
-```
-
-### Volume Thresholds
-
-Adjust volume thresholds for different timeframes in `utils/config.py`:
-
-```python
-# Volume thresholds
-VOLUME_THRESHOLDS = {
-    "1w": 300000,  # Weekly volume threshold in USD
-    "2d": 100000,  # 2-day volume threshold in USD
-    "1d": 50000,   # Daily volume threshold in USD
-    "4h": 20000    # 4-hour volume threshold in USD
+    "reversal_bar": {
+        "token": "YOUR_REVERSAL_BAR_TOKEN",
+        "chat_ids": ["YOUR_CHAT_ID"]
+    }
 }
 ```
 
 ## Usage
 
-### Running the Jupyter Notebook
+### Running in Jupyter Notebook
 
-Start Jupyter and open the `vsa_and_custom_scanner.ipynb` notebook:
-
-```bash
-jupyter notebook
-```
-
-### VSA-Based Scanning
-
-Run a VSA strategy scan with:
+To run scans from a Jupyter notebook:
 
 ```python
-await run_scan(
-    timeframe='4h', 
-    strategy='breakout_bar', 
-    exchange="binance_spot", 
-    send_telegram=True,
-    telegram_channel="start_trend",
-    user_id="default"
-)
-```
+import asyncio
+import sys
+import os
+project_dir = os.path.join(os.getcwd(), "Project")
+sys.path.insert(0, project_dir)
+print(f"✓ Added {project_dir} to sys.path")
+from run_scanner import run, run_all_exchanges
 
-### Custom Strategy Scanning
+# Define exchange lists
+spot_exchanges = [
+    "binance_spot",
+    "bybit_spot", 
+    "gateio_spot",
+    "kucoin_spot",
+    "mexc_spot"
+]
 
-Run custom strategy scans with:
+futures_exchanges = [
+    "binance_futures",
+    "bybit_futures",
+    "gateio_futures",
+    "mexc_futures"
+]
 
-```python
-await run_custom_scan(
-    exchange='binance_futures',
-    timeframe='4h',
-    strategies=['volume_surge', 'weak_uptrend', 'pin_down'],
+# Run a scan on a single exchange with a specific strategy
+result1 = await run(
+    exchange="binance_futures",
+    timeframe="4h",
+    strategies=["volume_surge"],
+    users=["default"],
     send_telegram=True
 )
+
+# Run a scan on all futures exchanges with multiple strategies
+result2 = await run_all_exchanges(
+    timeframe="4h",
+    strategies=["reversal_bar", "pin_down"],
+    exchanges=futures_exchanges,
+    users=["default"],
+    send_telegram=True
+)
+
+# Run a scan on all spot exchanges with different strategies
+result3 = await run_all_exchanges(
+    timeframe="1d",
+    strategies=["start_bar", "breakout_bar"],
+    exchanges=spot_exchanges,
+    users=["default"],
+    send_telegram=True
+)
+```
+
+### Running Directly from Python
+
+You can also run the scanner directly using a Python script:
+
+```python
+import asyncio
+from run_scanner import run
+
+async def main():
+    await run(
+        exchange="binance_futures",
+        timeframe="4h",
+        strategies=["reversal_bar"],
+        users=["default"],
+        send_telegram=True
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ## VSA Strategies
@@ -221,50 +252,98 @@ A reversal bar is characterized by:
 
 This pattern indicates potential exhaustion of the current trend and possible reversal.
 
+### Start Bar
+
+A start bar is characterized by:
+- Higher volume than previous bars
+- Higher high
+- Good range (not narrow)
+- Close in the upper portion of the bar
+- Located near a significant low
+
+This pattern helps identify the beginning of a new uptrend after a prolonged decline.
+
 ## Custom Strategies
 
 ### Volume Surge
 
 Detects bars with abnormally high volume (typically 4+ standard deviations above average) and calculates a score based on price action and range. Useful for identifying significant market events and potential trend changes.
 
+Parameters:
+- `lookback_period`: Number of bars to consider for volume statistics (default: 65)
+- `std_dev`: Standard deviations above mean to consider a volume surge (default: 4.0)
+
 ### Weak Uptrend
 
-Identifies bars showing weakness in an uptrend by detecting 5 types of weakness patterns:
-- W1: Higher high with lower volume (diminishing buying pressure)
-- W2: Up bar with smaller/similar spread (less conviction)
-- W3: Momentum loss (mandatory) - detected in three different ways
-- W4: Excess volume (potential exhaustion)
-- W5: Wide range with lower close (selling pressure)
+Identifies bars showing weakness in an uptrend, which could signal potential reversal or correction. This strategy detects multiple signs of weakness including divergence between price and volume.
 
 ### Pin Down
 
 Detects a bearish continuation pattern where:
 1. A bearish candle forms near a significant high (bearish top)
-2. Within 3 bars, price breaks below the low of the bearish top candle
+2. Within a few bars, price breaks below the low of the bearish top candle
 3. The pattern is NOT an outside bar
 
 This pattern suggests continuation of a downtrend after a brief pullback.
 
 ## Multi-User Support
 
-The system supports sending notifications to multiple users:
+To send notifications to multiple users:
 
-1. Add users to `TELEGRAM_USERS` in `utils/config.py`
-2. For VSA strategies, specify the user ID when running a scan:
-   ```python
-   await run_scan(
-       timeframe='4h', 
-       strategy='breakout_bar', 
-       exchange="binance_spot", 
-       send_telegram=True,
-       user_id="user1"  # Use the user ID from TELEGRAM_USERS
-   )
-   ```
+1. Add users to your Telegram configuration:
+```python
+# Add another user
+TELEGRAM_CONFIG["volume_surge"]["chat_ids"].append("ANOTHER_USER_CHAT_ID")
+```
 
-3. For custom strategies, add user chat IDs to the `CUSTOM_TELEGRAM_CONFIG` in the notebook:
-   ```python
-   CUSTOM_TELEGRAM_CONFIG['volume_surge']['chat_ids'].append(TELEGRAM_USERS["user1"]["chat_id"])
-   ```
+2. Specify multiple users when running a scan:
+```python
+await run(
+    exchange="binance_futures",
+    timeframe="4h",
+    strategies=["volume_surge"],
+    users=["default", "user2"],
+    send_telegram=True
+)
+```
+
+## AWS Service Setup
+
+The scanner can be run as a scheduled service on an AWS EC2 instance:
+
+1. **Upload the Code to AWS**:
+```bash
+# Clone your repository to AWS
+git clone https://github.com/hassou7/market-scanner.git
+mkdir -p ~/market-scanner/aws_scanner/logs
+```
+
+2. **Set Up the Service**:
+```bash
+cd ~/market-scanner/aws_scanner
+chmod +x setup_aws_service.sh
+./setup_aws_service.sh
+```
+
+3. **Start the Service**:
+```bash
+sudo systemctl start market-scanner.service
+```
+
+4. **Monitor the Service**:
+```bash
+# Check service status
+sudo systemctl status market-scanner.service
+
+# View logs
+tail -f ~/market-scanner/aws_scanner/logs/scanner_service.log
+```
+
+The AWS service will automatically run scans at the appropriate times for different timeframes:
+- 4h scans: Every 4 hours (00:01, 04:01, 08:01, 12:01, 16:01, 20:01 UTC)
+- 1d scans: Daily at 00:01 UTC
+- 2d scans: Every other day at 00:01 UTC (based on March 20, 2025 reference)
+- 1w scans: Weekly on Monday at 00:01 UTC
 
 ## Adding New Exchanges
 
@@ -313,56 +392,83 @@ class NewExchangeClient(BaseExchangeClient):
 
 ### Adding a New VSA Strategy
 
-1. Create a new strategy file in `breakout_vsa/strategies/`
-2. Define parameters in the `get_params()` function
-3. Update `breakout_vsa/core.py` to include the new strategy
-4. Update `STRATEGY_CHANNELS` in `utils/config.py` to map your strategy to a channel
+1. Create a new strategy file in `breakout_vsa/strategies/` (e.g., `new_strategy.py`)
+2. Define parameters in the `get_params()` function:
+   ```python
+   def get_params():
+       return {
+           'lookback': 14,
+           'direction_opt': "Up",
+           # Add other parameters
+       }
+   ```
+
+3. Update `breakout_vsa/core.py` to handle the new strategy
+4. Import and use the strategy in your scans:
+   ```python
+   await run(
+       exchange="binance_futures",
+       timeframe="4h",
+       strategies=["new_strategy"],
+       users=["default"],
+       send_telegram=True
+   )
+   ```
 
 ### Adding a New Custom Strategy
 
-1. Create a new strategy file in `custom_strategies/`
-2. Define a detection function that returns a boolean and a result dictionary
-3. Update `custom_strategies/__init__.py` to expose your new function
-4. Update `scanner/custom_scanner.py` to support the new strategy
-5. Update `CUSTOM_TELEGRAM_CONFIG` in the notebook to include your strategy
+1. Create a new strategy file in `custom_strategies/` (e.g., `new_custom.py`)
+2. Define a detection function that returns a boolean and a result dictionary:
+   ```python
+   def detect_new_pattern(df, param1=default1, param2=default2):
+       # Detection logic here
+       detected = some_condition
+       result = {
+           'timestamp': df.index[-2],
+           'key1': value1,
+           'key2': value2
+       }
+       return detected, result
+   ```
+
+3. Update `custom_strategies/__init__.py` to export your function
+4. Update `scanner/main.py` to handle your new strategy
+5. Use the strategy in your scans
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Circular Import Errors**:
-   - Ensure imports are properly ordered in `__init__.py` files
-   - Use local imports within functions where needed
+1. **Exchange API Rate Limiting**:
+   - Add delays between requests
+   - Reduce batch size for scanning
+   - Implement intelligent caching
 
-2. **API Rate Limiting**:
-   - Adjust `request_delay` in exchange clients
-   - Reduce `batch_size` for high-traffic exchanges
-
-3. **Telegram Bot Issues**:
+2. **Telegram Bot Issues**:
    - Verify token correctness
    - Ensure the bot has been started by the user
    - Check permission to post in groups
 
-4. **No Results Found**:
-   - Check volume thresholds in `config.py`
-   - Verify the strategy parameters
-   - Ensure exchange API is functioning correctly
+3. **AWS Service Not Starting**:
+   - Check systemd logs: `sudo journalctl -u market-scanner.service`
+   - Verify Python path is correct
+   - Check file permissions
 
-### Logging
+4. **No Patterns Detected**:
+   - Verify volume threshold settings
+   - Check strategy parameters
+   - Ensure market data is being fetched correctly
 
-The system uses Python's logging module. To increase logging verbosity:
+### Debug Mode
+
+For more detailed logging:
 
 ```python
 import logging
-logging.basicConfig(level=logging.DEBUG)
-```
+logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
 
-For file-based logging, add:
-
-```python
-handler = logging.FileHandler('scanner.log')
-handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logging.getLogger().addHandler(handler)
+# For AWS service, run with debug flag
+python aws_scanner/aws_scanner_service.py --debug
 ```
 
 ---
