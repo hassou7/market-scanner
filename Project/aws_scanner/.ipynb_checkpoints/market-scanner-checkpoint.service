@@ -1,0 +1,16 @@
+[Unit]
+Description=Market Scanner Service
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/market-scanner
+ExecStart=/home/ec2-user/market-scanner/venv/bin/python /home/ec2-user/market-scanner/aws_scanner/aws_scanner_service.py
+Restart=always
+RestartSec=300
+StandardOutput=append:/home/ec2-user/market-scanner/aws_scanner/logs/systemd_output.log
+StandardError=append:/home/ec2-user/market-scanner/aws_scanner/logs/systemd_error.log
+
+[Install]
+WantedBy=multi-user.target

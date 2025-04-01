@@ -1,0 +1,288 @@
+# Scanner/main.py
+
+import asyncio
+import logging
+from tqdm.asyncio import tqdm
+from telegram.ext import Application
+from datetime import datetime
+import pandas as pd
+import numpy as np
+from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down
+from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa
+
+kline_cache = {}
+
+class UnifiedScanner:
+    def __init__(self, exchange_client, strategies, telegram_config=None, min_volume_usd=100000):
+        self.exchange_client = exchange_client
+        self.strategies = strategies
+        self.telegram_config = telegram_config or {}
+        self.min_volume_usd = min_volume_usd
+        self.batch_size = 10
+        self.telegram_apps = {}
+        self.exchange_name = self._get_exchange_name()
+        self.strategy_titles = {
+            'volume_surge': 'Sudden Volume Surge',
+            'weak_uptrend': 'Weak Uptrend Detection',
+            'pin_down': 'Pin Down Detection',
+            'breakout_bar': 'Breakout Bar',
+            'stop_bar': 'Stop Bar',
+            'reversal_bar': 'Reversal Bar',
+            'start_bar': 'Start Bar'
+        }
+        self.vsa_detectors = {
+            'breakout_bar': breakout_bar_vsa,
+            'stop_bar': stop_bar_vsa,
+            'reversal_bar': reversal_bar_vsa,
+            'start_bar': start_bar_vsa
+        }
+
+    def _get_exchange_name(self):
+        class_name = self.exchange_client.__class__.__name__
+        mappings = {
+            "MexcFuturesClient": "MEXC Futures",
+            "GateioFuturesClient": "Gate.io Futures",
+            "BinanceFuturesClient": "Binance Futures",
+            "BybitFuturesClient": "Bybit Futures",
+            "BinanceSpotClient": "Binance Spot",
+            "BybitSpotClient": "Bybit Spot",
+            "GateioSpotClient": "Gate.io Spot",
+            "KucoinSpotClient": "KuCoin Spot",
+            "MexcSpotClient": "MEXC Spot"
+        }
+        return mappings.get(class_name, class_name.replace("Client", ""))
+
+    async def init_session(self):
+        await self.exchange_client.init_session()
+        for strategy, config in self.telegram_config.items():
+            if 'token' in config and config['token'] and strategy not in self.telegram_apps:
+                self.telegram_apps[strategy] = Application.builder().token(config['token']).build()
+
+    async def close_session(self):
+        await self.exchange_client.close_session()
+        for app in self.telegram_apps.values():
+            if hasattr(app, 'running') and app.running:
+                await app.stop()
+                await app.shutdown()
+        self.telegram_apps = {}
+
+    async def send_telegram_message(self, strategy, results):
+        if not results or strategy not in self.telegram_config or strategy not in self.telegram_apps:
+            return
+        try:
+            chat_ids = self.telegram_config[strategy].get('chat_ids', [])
+            if not chat_ids:
+                return
+            timeframe = self.exchange_client.timeframe
+            title = self.strategy_titles.get(strategy, strategy.replace('_', ' ').title())
+            message = f"🚨 {title} - {self.exchange_name} {timeframe.upper()}\n\n"
+            current_time = datetime.now()
+
+            for result in results:
+                symbol = result.get('symbol', 'Unknown')
+                tv_symbol = symbol.replace('_', '').replace('-', '')
+                tv_timeframe = timeframe.upper() if timeframe.upper() != "4H" else "240"
+                suffix = ".P" if "Futures" in self.exchange_name else ""
+                tv_exchange = self.exchange_name.upper().replace(" ", "").replace("FUTURES", "").replace("SPOT", "")
+                tv_link = f"https://www.tradingview.com/chart/?symbol={tv_exchange}:{tv_symbol}{suffix}&interval={tv_timeframe}"
+                date = result.get('date') or result.get('timestamp')
+                bar_status = "CURRENT BAR" if result.get('current_bar') else "Last Closed Bar"
+                volume_period = "Weekly" if timeframe == "1w" else "2-Day" if timeframe == "2d" else "Daily" if timeframe == "1d" else "4-Hour"
+
+                if strategy in self.vsa_detectors:
+                    message += (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {result.get('volume_ratio', 0):,.2f}x\n"
+                        f"{volume_period} Volume: ${result.get('volume', 0):,.2f}\n"
+                        f"Close Off Low: {result.get('close_off_low', 0):,.1f}%\n"
+                        f"Angular Ratio: {result.get('arctan_ratio', np.nan):.2f}\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'pin_down':
+                    message += (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {result.get('volume_ratio', 0):,.2f}x\n"
+                        f"{volume_period} Volume: ${result.get('volume_usd', 0):,.2f}\n"
+                        f"Bearish top bars ago: {result.get('bearishtop_dist', 0)}\n"
+                        f"{'='*30}\n"
+                    )
+
+            max_length = 4096
+            app = self.telegram_apps[strategy]
+            if not hasattr(app, '_initialized') or not app._initialized:
+                await app.initialize()
+                await app.start()
+            for chat_id in chat_ids:
+                if len(message) > max_length:
+                    chunks = [message[i:i+max_length] for i in range(0, len(message), max_length)]
+                    for chunk in chunks:
+                        await app.bot.send_message(chat_id=chat_id, text=chunk, parse_mode='HTML', disable_web_page_preview=True)
+                else:
+                    await app.bot.send_message(chat_id=chat_id, text=message, parse_mode='HTML', disable_web_page_preview=True)
+                await asyncio.sleep(0.3)
+        except Exception as e:
+            logging.error(f"Error sending {strategy} Telegram message: {str(e)}")
+
+    async def scan_market(self, symbol):
+        cache_key = f"{self.exchange_name}_{self.exchange_client.timeframe}_{symbol}"
+        if cache_key not in kline_cache:
+            df = await self.exchange_client.fetch_klines(symbol)
+            kline_cache[cache_key] = df
+        else:
+            logging.info(f"Using cached data for {symbol}")
+        df = kline_cache[cache_key]
+        
+        if df is None or len(df) < 10:
+            return {}
+        
+        # Only check volume filter on closed bars
+        if len(df) > 1:
+            volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
+            if volume_usd < self.min_volume_usd:
+                return {}
+        
+        results = {}
+        for strategy in self.strategies:
+            if strategy in self.vsa_detectors:
+                # Get strategy parameters and detect patterns
+                if strategy == 'reversal_bar':
+                    from breakout_vsa.strategies.reversal_bar import get_params
+                    params = get_params()
+                elif strategy == 'breakout_bar':
+                    from breakout_vsa.strategies.breakout_bar import get_params
+                    params = get_params()
+                elif strategy == 'stop_bar':
+                    from breakout_vsa.strategies.stop_bar import get_params
+                    params = get_params()
+                elif strategy == 'start_bar':
+                    from breakout_vsa.strategies.start_bar import get_params
+                    params = get_params()
+                else:
+                    # Fallback to default extraction if specific import not available
+                    params = self.vsa_detectors[strategy].__defaults__[0] if self.vsa_detectors[strategy].__defaults__ else {}
+                
+                # Run the detector with proper parameters
+                from breakout_vsa.core import vsa_detector
+                condition, result = vsa_detector(df, params)
+                
+                # Fix for start_bar which might have a different return signature
+                if strategy == 'start_bar' and not isinstance(condition, tuple):
+                    arctan_ratio_series = pd.Series(np.nan, index=df.index)  # Default to NaN
+                else:
+                    arctan_ratio_series = result['arctan_ratio']
+                
+                # Process current bar detection
+                if condition.iloc[-1]:
+                    idx = df.index[-1]
+                    volume_mean = df['volume'].rolling(7).mean().iloc[-1]
+                    bar_range = df['high'].iloc[-1] - df['low'].iloc[-1]
+                    close_off_low = (df['close'].iloc[-1] - df['low'].iloc[-1]) / bar_range * 100 if bar_range > 0 else 0
+                    volume_usd_current = df['volume'].iloc[-1] * df['close'].iloc[-1]
+                    arctan_ratio = arctan_ratio_series.iloc[-1] if not pd.isna(arctan_ratio_series.iloc[-1]) else 0.0
+                    
+                    results[strategy] = {
+                        'symbol': symbol,
+                        'date': idx,
+                        'close': df['close'].iloc[-1],
+                        'volume': volume_usd_current,
+                        'volume_ratio': df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0,
+                        'close_off_low': close_off_low,
+                        'current_bar': True,
+                        'arctan_ratio': arctan_ratio
+                    }
+                    logging.info(f"{strategy} detected for {symbol}")
+                
+                # Process last closed bar detection
+                elif len(df) > 1 and condition.iloc[-2]:
+                    idx = df.index[-2]
+                    volume_mean = df['volume'].rolling(7).mean().iloc[-2]
+                    bar_range = df['high'].iloc[-2] - df['low'].iloc[-2]
+                    close_off_low = (df['close'].iloc[-2] - df['low'].iloc[-2]) / bar_range * 100 if bar_range > 0 else 0
+                    volume_usd_closed = df['volume'].iloc[-2] * df['close'].iloc[-2]
+                    arctan_ratio = arctan_ratio_series.iloc[-2] if not pd.isna(arctan_ratio_series.iloc[-2]) else 0.0
+                    
+                    results[strategy] = {
+                        'symbol': symbol,
+                        'date': idx,
+                        'close': df['close'].iloc[-2],
+                        'volume': volume_usd_closed,
+                        'volume_ratio': df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0,
+                        'close_off_low': close_off_low,
+                        'current_bar': False,
+                        'arctan_ratio': arctan_ratio
+                    }
+                    logging.info(f"{strategy} detected for {symbol}")
+                    
+            # Handle other strategy types
+            elif strategy == 'pin_down':
+                detected, result = detect_pin_down(df)
+                if detected:
+                    result['symbol'] = symbol
+                    if len(df) > 1:
+                        result['volume_usd'] = df['volume'].iloc[-2] * df['close'].iloc[-2]
+                    else:
+                        result['volume_usd'] = 0
+                    results[strategy] = result
+                    logging.info(f"{strategy} detected for {symbol}")
+                    
+        return results
+
+    async def scan_all_markets(self):
+        try:
+            await self.init_session()
+            symbols = await self.exchange_client.get_all_spot_symbols() # To scan single symbol ['L3USDT'] 
+            timeframe = self.exchange_client.timeframe
+            logging.info(f"Found {len(symbols)} markets on {self.exchange_name} for {timeframe} timeframe")
+            
+            all_results = {strategy: [] for strategy in self.strategies}
+            with tqdm(total=len(symbols), desc=f"Scanning {self.exchange_name} markets ({timeframe})") as pbar:
+                for i in range(0, len(symbols), self.batch_size):
+                    batch = symbols[i:i + self.batch_size]
+                    tasks = [self.scan_market(symbol) for symbol in batch]
+                    batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for result in batch_results:
+                        if isinstance(result, dict) and result:
+                            for strategy, res in result.items():
+                                if res:
+                                    all_results[strategy].append(res)
+                                    logging.info(f"{strategy} detected for {res['symbol']}")
+                    pbar.update(len(batch))
+                    await asyncio.sleep(1.0)
+            for strategy, results in all_results.items():
+                if results and strategy in self.telegram_config:
+                    await self.send_telegram_message(strategy, results)
+            return all_results
+        except Exception as e:
+            logging.error(f"Error in scan_all_markets: {str(e)}")
+            return {strategy: [] for strategy in self.strategies}
+        finally:
+            await self.close_session()
+
+async def run_scanner(exchange, timeframe, strategies, telegram_config=None, min_volume_usd=100000):
+    from exchanges import (MexcFuturesClient, GateioFuturesClient, BinanceFuturesClient, 
+                          BybitFuturesClient, BinanceSpotClient, BybitSpotClient, 
+                          GateioSpotClient, KucoinSpotClient, MexcSpotClient)
+    
+    exchange_map = {
+        "mexc_futures": MexcFuturesClient,
+        "gateio_futures": GateioFuturesClient,
+        "binance_futures": BinanceFuturesClient,
+        "bybit_futures": BybitFuturesClient,
+        "binance_spot": BinanceSpotClient,
+        "bybit_spot": BybitSpotClient,
+        "gateio_spot": GateioSpotClient,
+        "kucoin_spot": KucoinSpotClient,
+        "mexc_spot": MexcSpotClient
+    }
+    
+    client_class = exchange_map.get(exchange)
+    if not client_class:
+        raise ValueError(f"Unsupported exchange: {exchange}")
+    
+    client = client_class(timeframe=timeframe)
+    scanner = UnifiedScanner(client, strategies, telegram_config, min_volume_usd)
+    return await scanner.scan_all_markets()
