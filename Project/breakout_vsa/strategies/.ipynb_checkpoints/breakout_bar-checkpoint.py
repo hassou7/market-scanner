@@ -2,9 +2,9 @@
 def get_params():
     return {
         # Basic indicators
-        'lookback': 7,
+        'lookback': 14,
         'direction_opt': "Up",
-        'bar_type_opt': "None",
+        'bar_type_opt': "New High or Outside Bar", #None
         'spread_opt': "Wide",
         'spread_std': 0.5,
         'spread_abnormal_std': 4.0,
@@ -13,11 +13,11 @@ def get_params():
         'volume_opt': "High",
         'volume_std': 0.5,
         'volume_abnormal_std': 3.0,
-        'close_opt': "Off Lows",
+        'close_opt': "In Highs",
         
         # Macro parameters
         'macro_opt': "Macro Low",
-        'macro_method': "Price Based (V1)",
+        'macro_method': "Combined (Strict)",
         
         # V1 (Price Based) parameters
         'v1_macro_short_lookback': 7,

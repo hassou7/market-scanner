@@ -75,9 +75,14 @@ class UnifiedScanner:
                 return
             timeframe = self.exchange_client.timeframe
             title = self.strategy_titles.get(strategy, strategy.replace('_', ' ').title())
-            message = f"🚨 {title} - {self.exchange_name} {timeframe.upper()}\n\n"
-            current_time = datetime.now()
-
+            
+            # Create the header message
+            header = f"🚨 {title} - {self.exchange_name} {timeframe.upper()}\n\n"
+            
+            # Create a list to store complete signal messages
+            signal_messages = []
+            
+            # Generate a complete message for each signal
             for result in results:
                 symbol = result.get('symbol', 'Unknown')
                 tv_symbol = symbol.replace('_', '').replace('-', '')
@@ -88,9 +93,10 @@ class UnifiedScanner:
                 date = result.get('date') or result.get('timestamp')
                 bar_status = "CURRENT BAR" if result.get('current_bar') else "Last Closed Bar"
                 volume_period = "Weekly" if timeframe == "1w" else "2-Day" if timeframe == "2d" else "Daily" if timeframe == "1d" else "4-Hour"
-
+    
+                # Create message specific to each strategy type
                 if strategy in self.vsa_detectors:
-                    message += (
+                    signal_message = (
                         f"Symbol: {symbol}\n"
                         f"Time: {date} - {bar_status}\n"
                         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
@@ -101,7 +107,7 @@ class UnifiedScanner:
                         f"{'='*30}\n"
                     )
                 elif strategy == 'pin_down':
-                    message += (
+                    signal_message = (
                         f"Symbol: {symbol}\n"
                         f"Time: {date} - {bar_status}\n"
                         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
@@ -110,22 +116,84 @@ class UnifiedScanner:
                         f"Bearish top bars ago: {result.get('bearishtop_dist', 0)}\n"
                         f"{'='*30}\n"
                     )
-
-            max_length = 4096
+                elif strategy == 'volume_surge':
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {result.get('volume_ratio', 0):,.2f}x\n"
+                        f"{volume_period} Volume: ${result.get('volume_usd', 0):,.2f}\n"
+                        f"Score: {result.get('score', 0):,.2f}\n"
+                        f"Price Extreme: {result.get('price_extreme', 'Unknown')}\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'weak_uptrend':
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume: ${result.get('volume_usd', 0):,.2f}\n"
+                        f"Uptrend age: {result.get('uptrend_age', 0)} bars\n"
+                        f"Weakness level: {result.get('weakness_level', 0):,.2f}\n"
+                        f"{'='*30}\n"
+                    )
+                else:
+                    # Generic format for any other strategy
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"{'='*30}\n"
+                    )
+                
+                # Add signal message to list
+                signal_messages.append(signal_message)
+            
+            # Initialize Telegram app
             app = self.telegram_apps[strategy]
             if not hasattr(app, '_initialized') or not app._initialized:
                 await app.initialize()
                 await app.start()
+            
+            # Send messages to each chat ID with smart chunking
             for chat_id in chat_ids:
-                if len(message) > max_length:
-                    chunks = [message[i:i+max_length] for i in range(0, len(message), max_length)]
-                    for chunk in chunks:
-                        await app.bot.send_message(chat_id=chat_id, text=chunk, parse_mode='HTML', disable_web_page_preview=True)
-                else:
-                    await app.bot.send_message(chat_id=chat_id, text=message, parse_mode='HTML', disable_web_page_preview=True)
-                await asyncio.sleep(0.3)
+                # Maximum message size for Telegram
+                max_message_size = 4000  # Slightly less than the 4096 limit to be safe
+                
+                # Start with the header
+                current_chunk = header
+                
+                # Process each signal message
+                for signal in signal_messages:
+                    # If adding this signal would exceed the limit, send the current chunk and start a new one
+                    if len(current_chunk) + len(signal) > max_message_size:
+                        # Send the current chunk
+                        await app.bot.send_message(
+                            chat_id=chat_id, 
+                            text=current_chunk, 
+                            parse_mode='HTML', 
+                            disable_web_page_preview=True
+                        )
+                        # Wait to avoid rate limits
+                        await asyncio.sleep(0.3)
+                        # Start a new chunk with the header
+                        current_chunk = header + signal
+                    else:
+                        # Add the signal to the current chunk
+                        current_chunk += signal
+                
+                # Send the final chunk if there's anything left
+                if current_chunk and current_chunk != header:
+                    await app.bot.send_message(
+                        chat_id=chat_id, 
+                        text=current_chunk, 
+                        parse_mode='HTML', 
+                        disable_web_page_preview=True
+                    )
+                    
         except Exception as e:
             logging.error(f"Error sending {strategy} Telegram message: {str(e)}")
+    
 
     async def scan_market(self, symbol):
         cache_key = f"{self.exchange_name}_{self.exchange_client.timeframe}_{symbol}"
@@ -147,6 +215,7 @@ class UnifiedScanner:
         
         results = {}
         for strategy in self.strategies:
+            # Handle VSA-based strategies
             if strategy in self.vsa_detectors:
                 # Get strategy parameters and detect patterns
                 if strategy == 'reversal_bar':
@@ -217,15 +286,64 @@ class UnifiedScanner:
                     }
                     logging.info(f"{strategy} detected for {symbol}")
                     
-            # Handle other strategy types
-            elif strategy == 'pin_down':
-                detected, result = detect_pin_down(df)
+            # Handle volume_surge strategy
+            elif strategy == 'volume_surge':
+                from custom_strategies import detect_volume_surge
+                
+                # Check last closed bar
+                if len(df) > 1:
+                    detected, result = detect_volume_surge(df, check_bar=-2)  # Explicitly check last closed bar
+                    
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result['timestamp'],
+                            'close': result['close_price'],
+                            'volume': result['volume'],
+                            'volume_usd': result['volume_usd'],
+                            'volume_ratio': result['volume_ratio'],
+                            'score': result['score'],
+                            'price_extreme': result['price_extreme'],
+                            'current_bar': False  # Last closed bar
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+                
+                # Check current bar
+                if len(df) > 2:  # Need at least 3 bars for proper calculation
+                    detected, result = detect_volume_surge(df, check_bar=-1)  # Check current bar
+                    
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result['timestamp'],
+                            'close': result['close_price'],
+                            'volume': result['volume'],
+                            'volume_usd': result['volume_usd'],
+                            'volume_ratio': result['volume_ratio'],
+                            'score': result['score'],
+                            'price_extreme': result['price_extreme'],
+                            'current_bar': True  # Current bar
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+            
+            # Handle weak_uptrend strategy
+            elif strategy == 'weak_uptrend':
+                from custom_strategies import detect_weak_uptrend
+                detected, result = detect_weak_uptrend(df)
+                
                 if detected:
                     result['symbol'] = symbol
-                    if len(df) > 1:
-                        result['volume_usd'] = df['volume'].iloc[-2] * df['close'].iloc[-2]
-                    else:
-                        result['volume_usd'] = 0
+                    results[strategy] = result
+                    logging.info(f"{strategy} detected for {symbol}")
+            
+            # Handle pin_down strategy
+            elif strategy == 'pin_down':
+                from custom_strategies import detect_pin_down
+                detected, result = detect_pin_down(df)
+                
+                if detected:
+                    result['symbol'] = symbol
+                    result['volume_usd'] = df['volume'].iloc[-2] * df['close'].iloc[-2] if len(df) > 1 else 0
                     results[strategy] = result
                     logging.info(f"{strategy} detected for {symbol}")
                     

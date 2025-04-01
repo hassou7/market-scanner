@@ -20,6 +20,8 @@ import logging
 from datetime import datetime, timedelta, time
 import time as time_module
 import pandas as pd
+from scanner.main import kline_cache
+kline_cache.clear()  # Clear cache for fresh data
 
 # Add project root to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -251,7 +253,7 @@ async def run_scan(config):
         return 0
 
 async def run_scheduled_scans():
-    """Run all scans at their scheduled times"""
+    """Run all scans at their scheduled times with staggered execution"""
     # Group configs by timeframe
     timeframe_configs = {}
     for config in all_scan_configs:
@@ -271,28 +273,78 @@ async def run_scheduled_scans():
                 wait_seconds = (next_time - now).total_seconds()
                 logger.debug(f"Next {tf} scan scheduled for {next_time.strftime('%Y-%m-%d %H:%M:%S')} UTC (in {wait_seconds/3600:.1f} hours)")
             
-            # Get the next timeframe to scan and its time
-            next_tf, next_time = min(next_times.items(), key=lambda x: x[1])
+            # Find all timeframes that need to be scanned in the next 2 minutes
+            # This helps identify overlapping scans (like Monday 00:00 with 4h, 1d, 1w)
+            current_time = datetime.utcnow()
+            upcoming_scans = []
             
-            # Calculate wait time
-            wait_seconds = (next_time - now).total_seconds()
+            for tf, scan_time in next_times.items():
+                time_diff = (scan_time - current_time).total_seconds()
+                # If scan is due in the next 2 minutes, add to upcoming scans
+                if time_diff <= 120:  # 2 minutes in seconds
+                    upcoming_scans.append((tf, scan_time))
             
-            if wait_seconds > 0:
-                logger.info(f"Next scan: {next_tf} at {next_time.strftime('%Y-%m-%d %H:%M:%S')} UTC (waiting {wait_seconds/60:.1f} minutes)")
-                await asyncio.sleep(wait_seconds)
+            # If we have multiple scans approaching, stagger them
+            if len(upcoming_scans) > 1:
+                logger.info(f"Multiple scans scheduled close together: {[tf for tf, _ in upcoming_scans]}")
+                # Sort by priority: 1d, 4h, 1w, 2d (most important to least)
+                priority_order = {"1d": 0, "4h": 1, "1w": 2, "2d": 3}
+                upcoming_scans.sort(key=lambda x: priority_order.get(x[0], 99))
+                
+                # Process each scan with a delay between them
+                for i, (tf, scan_time) in enumerate(upcoming_scans):
+                    # Wait until the scan time
+                    now = datetime.utcnow()
+                    wait_seconds = (scan_time - now).total_seconds()
+                    if wait_seconds > 0:
+                        logger.info(f"Waiting {wait_seconds/60:.1f} minutes for {tf} scan at {scan_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+                        await asyncio.sleep(wait_seconds)
+                    
+                    # Run all configs for this timeframe
+                    logger.info(f"Starting scheduled scans for {tf} timeframe")
+                    configs = timeframe_configs[tf]
+                    
+                    total_signals = 0
+                    for config in configs:
+                        signals = await run_scan(config)
+                        total_signals += signals
+                    
+                    logger.info(f"Completed all {tf} scans. Total signals found: {total_signals}")
+                    
+                    # Add a delay before the next timeframe to avoid API rate limits
+                    # Only add delay if there are more scans to process
+                    if i < len(upcoming_scans) - 1:
+                        delay = 60  # 1 minute delay between timeframes
+                        logger.info(f"Adding {delay} second delay before next timeframe to avoid API rate limits")
+                        await asyncio.sleep(delay)
+            else:
+                # Regular case - just one scan approaching
+                if upcoming_scans:
+                    next_tf, next_time = upcoming_scans[0]
+                else:
+                    # Get the next timeframe to scan and its time
+                    next_tf, next_time = min(next_times.items(), key=lambda x: x[1])
+                
+                # Calculate wait time
+                now = datetime.utcnow()
+                wait_seconds = (next_time - now).total_seconds()
+                
+                if wait_seconds > 0:
+                    logger.info(f"Next scan: {next_tf} at {next_time.strftime('%Y-%m-%d %H:%M:%S')} UTC (waiting {wait_seconds/60:.1f} minutes)")
+                    await asyncio.sleep(wait_seconds)
+                
+                # Run all configs for this timeframe
+                logger.info(f"Starting scheduled scans for {next_tf} timeframe")
+                configs = timeframe_configs[next_tf]
+                
+                total_signals = 0
+                for config in configs:
+                    signals = await run_scan(config)
+                    total_signals += signals
+                
+                logger.info(f"Completed all {next_tf} scans. Total signals found: {total_signals}")
             
-            # Run all configs for this timeframe
-            logger.info(f"Starting scheduled scans for {next_tf} timeframe")
-            configs = timeframe_configs[next_tf]
-            
-            total_signals = 0
-            for config in configs:
-                signals = await run_scan(config)
-                total_signals += signals
-            
-            logger.info(f"Completed all {next_tf} scans. Total signals found: {total_signals}")
-            
-            # Small delay to ensure we're past the candle close before checking next schedules
+            # Small delay before checking next schedules
             await asyncio.sleep(30)
         
         except Exception as e:
