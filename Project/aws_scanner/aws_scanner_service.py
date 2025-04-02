@@ -87,28 +87,32 @@ futures_scan_configs = [
         "strategies": ["reversal_bar", "pin_down"],
         "exchanges": futures_exchanges,
         "users": ["default"],
-        "send_telegram": True
+        "send_telegram": True,
+        "min_volume_usd": None  # Use value from config
     },
     {
         "timeframe": "1d",
         "strategies": ["reversal_bar", "pin_down"],
         "exchanges": futures_exchanges,
         "users": ["default"],
-        "send_telegram": True
+        "send_telegram": True,
+        "min_volume_usd": None  # Use value from config
     },
     {
         "timeframe": "2d",
         "strategies": ["reversal_bar", "pin_down"],
         "exchanges": futures_exchanges,
         "users": ["default"],
-        "send_telegram": True
+        "send_telegram": True,
+        "min_volume_usd": None  # Use value from config
     },
     {
         "timeframe": "1w",
         "strategies": ["reversal_bar", "pin_down"],
         "exchanges": futures_exchanges,
         "users": ["default"],
-        "send_telegram": True
+        "send_telegram": True,
+        "min_volume_usd": None  # Use value from config
     }
 ]
 
@@ -119,28 +123,32 @@ spot_scan_configs = [
         "strategies": ["start_bar", "breakout_bar"],
         "exchanges": spot_exchanges,
         "users": ["default"],
-        "send_telegram": True
+        "send_telegram": True,
+        "min_volume_usd": None  # Use value from config
     },
     {
         "timeframe": "1d",
         "strategies": ["start_bar", "breakout_bar"],
         "exchanges": spot_exchanges,
         "users": ["default"],
-        "send_telegram": True
+        "send_telegram": True,
+        "min_volume_usd": None  # Use value from config
     },
     {
         "timeframe": "2d",
         "strategies": ["start_bar", "breakout_bar"],
         "exchanges": spot_exchanges,
         "users": ["default"],
-        "send_telegram": True
+        "send_telegram": True,
+        "min_volume_usd": None  # Use value from config
     },
     {
         "timeframe": "1w",
         "strategies": ["start_bar", "breakout_bar"],
         "exchanges": spot_exchanges,
         "users": ["default"],
-        "send_telegram": True
+        "send_telegram": True,
+        "min_volume_usd": None  # Use value from config
     }
 ]
 
@@ -230,13 +238,14 @@ async def run_scan(config):
         
         logger.info(f"Running scan for {config['timeframe']} timeframe with strategies: {config['strategies']} on {config['exchanges']}")
         
-        # Run the scan using the existing function
+        # Run the scan using the existing function, passing the min_volume_usd parameter
         result = await run_all_exchanges(
             timeframe=config['timeframe'],
             strategies=config['strategies'],
             exchanges=config['exchanges'],
             users=config['users'],
-            send_telegram=config['send_telegram']
+            send_telegram=config['send_telegram'],
+            min_volume_usd=config['min_volume_usd']  # Pass None to use config values
         )
         
         # Count total signals found
