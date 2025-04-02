@@ -61,10 +61,15 @@ class MexcClient(BaseExchangeClient):
         
         # Calculate end time (now)
         end_time = int(time.time() * 1000)  # MEXC uses milliseconds
+
+        # For 4h, calculate start time in hours (4h * fetch_limit)
+        fetch_limit = self._get_fetch_limit()  # e.g., 200 for 4h
+        if self.timeframe == '4h':
+            start_time = end_time - (fetch_limit * 4 * 60 * 60 * 1000)
+        else:
+            fetch_days = 90 if self.timeframe in ['1w', '2d'] else fetch_limit
+            start_time = end_time - (fetch_days * 24 * 60 * 60 * 1000)
         
-        # Calculate start time based on needed days
-        fetch_days = 90 if self.timeframe in ['1w', '2d'] else self.fetch_limit
-        start_time = end_time - (fetch_days * 24 * 60 * 60 * 1000)
         
         params = {
             'symbol': symbol,

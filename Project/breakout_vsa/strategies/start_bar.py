@@ -34,5 +34,8 @@ def get_params():
         'macro_opt': "None",
         'macro_method': "None",
         'use_arctangent_ratio': False,
-        'arctangent_ratio_threshold': 1.0
+        'arctangent_ratio_threshold': 1.0,
+        'use_high_breakout': True,  # Enable high breakout detection for breakout_bar strategy
+        'high_breakout_lookback': 20,
+        'high_breakout_count_percent': 80
     }

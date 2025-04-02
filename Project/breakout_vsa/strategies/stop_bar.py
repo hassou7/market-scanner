@@ -37,5 +37,10 @@ def get_params():
 
         # New Arctangent Ratio condition
         'use_arctangent_ratio': False,  # Optional
-        'arctangent_ratio_threshold': 1.0 
+        'arctangent_ratio_threshold': 1.0,
+
+        # High Breakout parameters
+        'use_high_breakout': False,  # Enable high breakout detection for breakout_bar strategy
+        'high_breakout_lookback': 20,
+        'high_breakout_count_percent': 80
     }

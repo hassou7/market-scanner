@@ -26,9 +26,9 @@ def get_params():
         'v1_macro_percentile': 10.0,
         
         # V2 (Count Based) parameters
-        'v2_macro_short_lookback': 48,
+        'v2_macro_short_lookback': 8,
         'v2_macro_medium_lookback': 28,
-        'v2_macro_long_lookback': 8,
+        'v2_macro_long_lookback': 48,
         'v2_macro_percentile': 25.0,
         
         # Breakout Close parameters
@@ -37,5 +37,10 @@ def get_params():
 
         # New Arctangent Ratio condition
         'use_arctangent_ratio': False,  # Optional
-        'arctangent_ratio_threshold': 1.0 
+        'arctangent_ratio_threshold': 1.0,
+        
+        # High Breakout parameters
+        'use_high_breakout': True,  # Enable high breakout detection for breakout_bar strategy
+        'high_breakout_lookback': 10,
+        'high_breakout_count_percent': 10
     }

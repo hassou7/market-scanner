@@ -182,6 +182,47 @@ def count_higher_highs(series, lookback_period):
         count_series.iloc[i] = count
     return count_series
 
+def calculate_high_breakout(df, high_breakout_lookback=20, high_breakout_count_percent=80):
+    """
+    Calculates high breakout based on count of prior bars with highs below current close
+    
+    Args:
+        df (pd.DataFrame): DataFrame with OHLC data
+        high_breakout_lookback (int): Lookback period for checking highs
+        high_breakout_count_percent (float): Percentage threshold for breakout confirmation
+        
+    Returns:
+        pd.Series: Boolean series indicating where high breakout condition is met
+    """
+    # Initialize result series with False values
+    is_high_breakout = pd.Series(False, index=df.index)
+    
+    for i in range(len(df)):
+        # Skip the first few bars where we don't have enough history
+        if i < high_breakout_lookback + 2:
+            continue
+        
+        # Check if current close exceeds previous 2 bars' highs
+        is_above_prev_two = df['close'].iloc[i] > df['high'].iloc[i-1] and df['close'].iloc[i] > df['high'].iloc[i-2]
+        
+        if not is_above_prev_two:
+            continue
+        
+        # Count how many highs in the lookback period (excluding last 2 bars) are below current close
+        high_breakout_count = 0
+        for j in range(3, high_breakout_lookback + 3):
+            if i-j >= 0 and df['close'].iloc[i] > df['high'].iloc[i-j]:
+                high_breakout_count += 1
+        
+        # Calculate percentage based on adjusted lookback (total lookback - 2)
+        adjusted_lookback = high_breakout_lookback
+        high_breakout_pct = (high_breakout_count / adjusted_lookback) * 100 if adjusted_lookback > 0 else 0
+        
+        # Set result based on threshold
+        is_high_breakout.iloc[i] = high_breakout_pct >= high_breakout_count_percent
+    
+    return is_high_breakout
+    
 def calculate_count_based_macro(df, result, params):
     """
     Calculate count-based macro indicators (V2 method)
@@ -262,9 +303,18 @@ def apply_condition_filters(df, result, params):
     use_breakout_close = params['use_breakout_close']
     use_arctangent_ratio = params.get('use_arctangent_ratio', False)
     arctangent_ratio_threshold = params.get('arctangent_ratio_threshold', 0.0)
+
+    # Add high breakout parameters with defaults if not provided
+    use_high_breakout = params.get('use_high_breakout', False)
+    high_breakout_lookback = params.get('high_breakout_lookback', 10)
+    high_breakout_count_percent = params.get('high_breakout_count_percent', 10)
     
     # Calculate arctangent ratio for all bars and store in result
     result['arctan_ratio'] = calculate_arctangent_ratio(df)
+
+    # Calculate high breakout if needed
+    if use_high_breakout:
+        result['is_high_breakout'] = calculate_high_breakout(df, high_breakout_lookback, high_breakout_count_percent)
     
     # Initialize condition as True for all rows
     condition = pd.Series(True, index=df.index)
@@ -336,5 +386,9 @@ def apply_condition_filters(df, result, params):
     # Optional arctangent ratio condition
     if use_arctangent_ratio:
         condition = condition & (result['arctan_ratio'] >= arctangent_ratio_threshold)
+
+    # Apply high breakout condition if enabled
+    if use_high_breakout:
+        condition = condition & result['is_high_breakout']
     
     return condition
