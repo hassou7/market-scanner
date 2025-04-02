@@ -1,3 +1,5 @@
+#run_scanner.py
+
 import asyncio
 import sys
 import os
@@ -20,7 +22,7 @@ def print_header(text):
     print(f"  {text}")
     print(f"{'='*80}\n")
 
-async def run(exchange, timeframe, strategies, users=["default"], send_telegram=True):
+async def run(exchange, timeframe, strategies, users=["default"], send_telegram=True, min_volume_usd=None):
     # Ensure users is a list
     users = users if isinstance(users, (list, tuple)) else ["default"]
     
@@ -33,7 +35,7 @@ async def run(exchange, timeframe, strategies, users=["default"], send_telegram=
     print("\nFetching market data...")
 
     telegram_config = get_telegram_config(strategies, users) if send_telegram else None
-    results = await run_scanner(exchange, timeframe, strategies, telegram_config)
+    results = await run_scanner(exchange, timeframe, strategies, telegram_config, min_volume_usd)
     
     print_header("SCAN RESULTS")
     total_signals = sum(len(res) for res in results.values())
@@ -49,13 +51,13 @@ async def run(exchange, timeframe, strategies, users=["default"], send_telegram=
             print(f"\n{strategy.replace('_', ' ').title()}: {len(res)} signals")
             display(df)
 
-async def run_all_exchanges(timeframe, strategies, exchanges=None, users=["default"], send_telegram=True):
+async def run_all_exchanges(timeframe, strategies, exchanges=None, users=["default"], send_telegram=True, min_volume_usd=None):
     # Ensure users is a list
     users = users if isinstance(users, (list, tuple)) else ["default"]
     
     default_exchanges = [
-        "mexc_futures", "gateio_futures", "binance_futures", "bybit_futures",
-        "binance_spot", "bybit_spot", "gateio_spot", "kucoin_spot", "mexc_spot"
+        "binance_futures", "bybit_futures", "gateio_futures", "mexc_futures",
+        "binance_spot", "bybit_spot", "gateio_spot", "mexc_spot", "kucoin_spot"
     ]
     exchanges = exchanges if exchanges is not None else default_exchanges
     
@@ -73,13 +75,16 @@ async def run_all_exchanges(timeframe, strategies, exchanges=None, users=["defau
     for exchange in exchanges:
         logging.info(f"Scanning {exchange}...")
         try:
-            results = await run_scanner(exchange, timeframe, strategies, telegram_config)
+            # Pass the min_volume_usd parameter to run_scanner
+            results = await run_scanner(exchange, timeframe, strategies, telegram_config, min_volume_usd)
             for strategy, res in results.items():
                 if strategy not in all_results:
                     all_results[strategy] = []
                 all_results[strategy].extend([{**r, 'exchange': exchange} for r in res])
         except Exception as e:
             logging.error(f"Error scanning {exchange}: {str(e)}")
+
+    # ... rest of the function remains the same
 
     print_header("COMBINED SCAN RESULTS")
     total_signals = sum(len(res) for res in all_results.values())

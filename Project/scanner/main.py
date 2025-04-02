@@ -9,15 +9,19 @@ import pandas as pd
 import numpy as np
 from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa
+from utils.config import VOLUME_THRESHOLDS
 
 kline_cache = {}
 
 class UnifiedScanner:
-    def __init__(self, exchange_client, strategies, telegram_config=None, min_volume_usd=100000):
+    def __init__(self, exchange_client, strategies, telegram_config=None, min_volume_usd=None):
         self.exchange_client = exchange_client
         self.strategies = strategies
         self.telegram_config = telegram_config or {}
-        self.min_volume_usd = min_volume_usd
+        
+        timeframe = exchange_client.timeframe
+        self.min_volume_usd = min_volume_usd if min_volume_usd is not None else VOLUME_THRESHOLDS.get(timeframe, 50000)
+        
         self.batch_size = 10
         self.telegram_apps = {}
         self.exchange_name = self._get_exchange_name()
@@ -380,7 +384,7 @@ class UnifiedScanner:
         finally:
             await self.close_session()
 
-async def run_scanner(exchange, timeframe, strategies, telegram_config=None, min_volume_usd=100000):
+async def run_scanner(exchange, timeframe, strategies, telegram_config=None, min_volume_usd=None):
     from exchanges import (MexcFuturesClient, GateioFuturesClient, BinanceFuturesClient, 
                           BybitFuturesClient, BinanceSpotClient, BybitSpotClient, 
                           GateioSpotClient, KucoinSpotClient, MexcSpotClient)
