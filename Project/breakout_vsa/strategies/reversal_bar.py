@@ -18,7 +18,7 @@ def get_params():
         
         # Macro parameters
         'macro_opt': "Macro High",
-        'macro_method': "Combined (Strict)",
+        'macro_method': "Count Based (V2)",
         
         # V1 (Price Based) parameters
         'v1_macro_short_lookback': 14,

@@ -20,6 +20,10 @@ import logging
 from datetime import datetime, timedelta, time
 import time as time_module
 import pandas as pd
+
+project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, project_dir)
+
 from scanner.main import kline_cache
 kline_cache.clear()  # Clear cache for fresh data
 
@@ -262,7 +266,7 @@ async def run_scan(config):
         return 0
 
 async def run_scheduled_scans():
-    """Run all scans at their scheduled times with staggered execution"""
+    """Run all scans at their scheduled times with staggered execution and optimized data fetching"""
     # Group configs by timeframe
     timeframe_configs = {}
     for config in all_scan_configs:
@@ -270,6 +274,9 @@ async def run_scheduled_scans():
         if timeframe not in timeframe_configs:
             timeframe_configs[timeframe] = []
         timeframe_configs[timeframe].append(config)
+    
+    # Define timeframe processing order priority
+    timeframe_priority = {"1d": 0, "2d": 1, "1w": 2, "4h": 3}
     
     while True:
         try:
@@ -283,7 +290,6 @@ async def run_scheduled_scans():
                 logger.debug(f"Next {tf} scan scheduled for {next_time.strftime('%Y-%m-%d %H:%M:%S')} UTC (in {wait_seconds/3600:.1f} hours)")
             
             # Find all timeframes that need to be scanned in the next 2 minutes
-            # This helps identify overlapping scans (like Monday 00:00 with 4h, 1d, 1w)
             current_time = datetime.utcnow()
             upcoming_scans = []
             
@@ -293,24 +299,35 @@ async def run_scheduled_scans():
                 if time_diff <= 120:  # 2 minutes in seconds
                     upcoming_scans.append((tf, scan_time))
             
-            # If we have multiple scans approaching, stagger them
+            # If we have multiple scans approaching, process them in priority order
             if len(upcoming_scans) > 1:
                 logger.info(f"Multiple scans scheduled close together: {[tf for tf, _ in upcoming_scans]}")
-                # Sort by priority: 1d, 4h, 1w, 2d (most important to least)
-                priority_order = {"1d": 0, "4h": 1, "1w": 2, "2d": 3}
-                upcoming_scans.sort(key=lambda x: priority_order.get(x[0], 99))
                 
-                # Process each scan with a delay between them
-                for i, (tf, scan_time) in enumerate(upcoming_scans):
-                    # Wait until the scan time
-                    now = datetime.utcnow()
-                    wait_seconds = (scan_time - now).total_seconds()
-                    if wait_seconds > 0:
-                        logger.info(f"Waiting {wait_seconds/60:.1f} minutes for {tf} scan at {scan_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-                        await asyncio.sleep(wait_seconds)
+                # Sort timeframes by priority
+                upcoming_timeframes = [tf for tf, _ in upcoming_scans]
+                sorted_timeframes = sorted(upcoming_timeframes, 
+                                          key=lambda tf: timeframe_priority.get(tf, 99))
+                
+                logger.info(f"Processing timeframes in priority order: {sorted_timeframes}")
+                
+                # Clear the cache before starting
+                from scanner.main import kline_cache
+                kline_cache.clear()
+                
+                # Process timeframes in priority order
+                for tf in sorted_timeframes:
+                    logger.info(f"Processing {tf} timeframe scans")
+                    
+                    # If this is 2d or 1w, don't clear the cache as we need 1d data
+                    if tf == "2d" or tf == "1w":
+                        logger.info(f"Preserving 1d data cache for {tf} timeframe")
+                        # No cache clearing here
+                    elif tf == "4h":
+                        # Clear cache before 4h as it's standalone
+                        logger.info(f"Clearing cache before processing {tf} timeframe")
+                        kline_cache.clear()
                     
                     # Run all configs for this timeframe
-                    logger.info(f"Starting scheduled scans for {tf} timeframe")
                     configs = timeframe_configs[tf]
                     
                     total_signals = 0
@@ -320,12 +337,14 @@ async def run_scheduled_scans():
                     
                     logger.info(f"Completed all {tf} scans. Total signals found: {total_signals}")
                     
-                    # Add a delay before the next timeframe to avoid API rate limits
-                    # Only add delay if there are more scans to process
-                    if i < len(upcoming_scans) - 1:
-                        delay = 60  # 1 minute delay between timeframes
-                        logger.info(f"Adding {delay} second delay before next timeframe to avoid API rate limits")
-                        await asyncio.sleep(delay)
+                    # Only add delay if there are more scans and next one is 4h
+                    # (Other timeframes can use the same cache)
+                    if sorted_timeframes.index(tf) < len(sorted_timeframes) - 1:
+                        next_tf = sorted_timeframes[sorted_timeframes.index(tf) + 1]
+                        if next_tf == "4h":
+                            delay = 60  # 1 minute delay
+                            logger.info(f"Adding {delay} second delay before next timeframe to avoid API rate limits")
+                            await asyncio.sleep(delay)
             else:
                 # Regular case - just one scan approaching
                 if upcoming_scans:
@@ -341,6 +360,11 @@ async def run_scheduled_scans():
                 if wait_seconds > 0:
                     logger.info(f"Next scan: {next_tf} at {next_time.strftime('%Y-%m-%d %H:%M:%S')} UTC (waiting {wait_seconds/60:.1f} minutes)")
                     await asyncio.sleep(wait_seconds)
+                
+                # Clear cache before scanning
+                from scanner.main import kline_cache
+                kline_cache.clear()
+                logger.info(f"Cache cleared before processing {next_tf} timeframe")
                 
                 # Run all configs for this timeframe
                 logger.info(f"Starting scheduled scans for {next_tf} timeframe")

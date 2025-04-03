@@ -1,6 +1,6 @@
 # Market Scanner AWS Service
 
-This folder contains everything needed to run your market pattern scanner as a service on AWS EC2.
+This folder contains everything you need to run your cryptocurrency market pattern scanner as a service on an AWS EC2 instance. This guide is written for beginners, so don’t worry if you’re new to this—we’ll walk you through each step!
 
 ## Directory Structure
 
@@ -10,7 +10,7 @@ Project/
 │   ├── aws_scanner_service.py   # Main service script
 │   ├── market-scanner.service   # Systemd service configuration
 │   ├── setup_aws_service.sh     # Setup script
-│   ├── README.md                # This file
+│   ├── README.md                # This file (you're reading it!)
 │   └── logs/                    # Log files (created automatically)
 │       ├── scanner_service.log  # Main application logs
 │       ├── systemd_output.log   # Standard output logs
@@ -28,25 +28,52 @@ Project/
 - Uses your existing code structure and functions
 - Sends Telegram notifications for detected patterns
 - Runs as a systemd service with automatic restart on failure
+- Implements staggered scanning to prevent exchange API rate limiting
 
 ## Installation on AWS
 
-1. **Clone your repository to the AWS EC2 instance**
+1. **Connect to your EC2 instance**
 
 ```bash
-git clone https://github.com/yourusername/market-scanner.git
-cd market-scanner
+ssh -i "/path/to/your-key.pem" ec2-user@your-instance-ip
 ```
 
-2. **Run the setup script**
+For example:
+```bash
+ssh -i "C:\Users\hbs\.ssh\volume_surge.pem" ec2-user@13.53.165.65
+```
+
+2. **Clone your repository or upload your code**
 
 ```bash
-cd aws_scanner
+# Option 1: If using git
+git clone https://github.com/yourusername/market-scanner.git
+
+# Option 2: Create directories for manual file uploads
+mkdir -p market-scanner/aws_scanner/logs
+```
+
+3. **If uploading manually, use SCP in a separate terminal window**
+
+```bash
+# Upload the main project files
+scp -i "C:\Users\hbs\.ssh\volume_surge.pem" -r /path/to/your/Project/* ec2-user@13.53.165.65:~/market-scanner/
+
+# Upload the AWS scanner files
+scp -i "C:\Users\hbs\.ssh\volume_surge.pem" aws_scanner_service.py ec2-user@13.53.165.65:~/market-scanner/aws_scanner/
+scp -i "C:\Users\hbs\.ssh\volume_surge.pem" market-scanner.service ec2-user@13.53.165.65:~/market-scanner/aws_scanner/
+scp -i "C:\Users\hbs\.ssh\volume_surge.pem" setup_aws_service.sh ec2-user@13.53.165.65:~/market-scanner/aws_scanner/
+```
+
+4. **Run the setup script**
+
+```bash
+cd ~/market-scanner/aws_scanner
 chmod +x setup_aws_service.sh
 ./setup_aws_service.sh
 ```
 
-3. **Start the service**
+5. **Start the service**
 
 ```bash
 sudo systemctl start market-scanner.service
@@ -102,6 +129,31 @@ spot_scan_configs = [
 ]
 ```
 
+### Staggered Scan Logic
+
+The service implements a staggered scanning approach to prevent exchange API rate limiting:
+
+1. **When multiple timeframes need to be scanned at the same time (like Monday 00:00 UTC when 4h, 1d, and 1w coincide):**
+   - Scans are prioritized in the following order: 1d, 4h, 1w, 2d
+   - A 1-minute delay is added between different timeframe scans
+   - This prevents API rate limiting while keeping scans as timely as possible
+
+2. **For normal operation (non-overlapping scans):**
+   - Each timeframe is scanned at its appropriate candle close time
+
+You can adjust the priority order in the code if needed:
+```python
+# Sort by priority: 1d, 4h, 1w, 2d (most important to least)
+priority_order = {"1d": 0, "4h": 1, "1w": 2, "2d": 3}
+```
+
+## Special Timeframe Handling
+
+- **4-Hour Candles**: Closes at 0, 4, 8, 12, 16, 20 UTC
+- **Daily Candles**: Closes at 00:00 UTC
+- **2-Day Candles**: Based on the reference date of March 20, 2025
+- **Weekly Candles**: Starts on Monday and closes on Sunday night/Monday morning at 00:00 UTC
+
 ## Monitoring
 
 ### Check Service Status
@@ -114,18 +166,30 @@ sudo systemctl status market-scanner.service
 
 ```bash
 # View the main application log
-tail -f aws_scanner/logs/scanner_service.log
+tail -f ~/market-scanner/aws_scanner/logs/scanner_service.log
 
 # View systemd output logs
-tail -f aws_scanner/logs/systemd_output.log
+tail -f ~/market-scanner/aws_scanner/logs/systemd_output.log
 
 # View systemd error logs
-tail -f aws_scanner/logs/systemd_error.log
+tail -f ~/market-scanner/aws_scanner/logs/systemd_error.log
 ```
 
 ### Restart the Service
 
 ```bash
+sudo systemctl restart market-scanner.service
+```
+
+## Updating the Service
+
+If you make changes to the service script:
+
+```bash
+# Edit the file
+nano ~/market-scanner/aws_scanner/aws_scanner_service.py
+
+# Restart the service
 sudo systemctl restart market-scanner.service
 ```
 
@@ -140,7 +204,7 @@ sudo systemctl stop market-scanner.service
 
 2. Run manually with debug flag:
 ```bash
-cd /home/ec2-user/market-scanner
+cd ~/market-scanner
 source venv/bin/activate
 python aws_scanner/aws_scanner_service.py --debug
 ```
