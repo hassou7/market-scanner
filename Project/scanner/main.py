@@ -45,12 +45,12 @@ class UnifiedScanner:
         class_name = self.exchange_client.__class__.__name__
         mappings = {
             "MexcFuturesClient": "MEXC Futures",
-            "GateioFuturesClient": "Gate.io Futures",
+            "GateioFuturesClient": "Gateio Futures",
             "BinanceFuturesClient": "Binance Futures",
             "BybitFuturesClient": "Bybit Futures",
             "BinanceSpotClient": "Binance Spot",
             "BybitSpotClient": "Bybit Spot",
-            "GateioSpotClient": "Gate.io Spot",
+            "GateioSpotClient": "Gateio Spot",
             "KucoinSpotClient": "KuCoin Spot",
             "MexcSpotClient": "MEXC Spot"
         }

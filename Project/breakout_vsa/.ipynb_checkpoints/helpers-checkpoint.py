@@ -43,9 +43,9 @@ def calculate_basic_indicators(df, params):
         (df['close'] - df['low']) / result['bar_range'], 
         0
     )
-    result['is_in_highs'] = result['close_position'] > 0.75
+    result['is_in_highs'] = result['close_position'] > 0.65
     result['is_off_highs'] = result['close_position'] <= 0.5
-    result['is_in_lows'] = result['close_position'] < 0.25
+    result['is_in_lows'] = result['close_position'] < 0.35
     result['is_off_lows'] = result['close_position'] >= 0.5
     
     # Momentum Calculations
