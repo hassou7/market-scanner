@@ -82,7 +82,7 @@ futures_exchanges = [
 futures_scan_configs = [
     {
         "timeframe": "4h",
-        "strategies": ["reversal_bar", "pin_down"],
+        "strategies": ["reversal_bar", "volume_surge"],
         "exchanges": futures_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -90,7 +90,7 @@ futures_scan_configs = [
     },
     {
         "timeframe": "1d",
-        "strategies": ["reversal_bar", "pin_down"],
+        "strategies": ["reversal_bar", "volume_surge"],
         "exchanges": futures_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -117,7 +117,7 @@ futures_scan_configs = [
 spot_scan_configs = [
     {
         "timeframe": "4h",
-        "strategies": ["start_bar", "breakout_bar"],
+        "strategies": ["breakout_bar"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -125,7 +125,7 @@ spot_scan_configs = [
     },
     {
         "timeframe": "1d",
-        "strategies": ["start_bar", "breakout_bar"],
+        "strategies": ["breakout_bar"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -133,7 +133,7 @@ spot_scan_configs = [
     },
     {
         "timeframe": "2d",
-        "strategies": ["start_bar", "breakout_bar"],
+        "strategies": ["start_bar", "breakout_bar", "volume_surge"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -141,7 +141,7 @@ spot_scan_configs = [
     },
     {
         "timeframe": "1w",
-        "strategies": ["start_bar", "breakout_bar"],
+        "strategies": ["start_bar", "breakout_bar", "volume_surge"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -173,10 +173,14 @@ def get_next_candle_time(interval="4h"):
                 next_time += timedelta(days=1)
         else:
             next_time = now.replace(hour=next_4h, minute=1, second=0, microsecond=0)
+        # Ensure the time is in the future
+        while next_time <= now:
+            next_time += timedelta(hours=4)
     
     elif interval == "1d":
         next_time = now.replace(hour=0, minute=1, second=0, microsecond=0)
-        if now.hour >= 0 and now.minute >= 1:
+        # If the current time is past 00:01 today, schedule for tomorrow
+        if now >= next_time:
             next_time += timedelta(days=1)
     
     elif interval == "2d":
@@ -188,6 +192,9 @@ def get_next_candle_time(interval="4h"):
         next_time = datetime.combine(next_period_start, time(0, 1, 0))
         if now >= next_time:
             next_time = datetime.combine(next_period_start + timedelta(days=2), time(0, 1, 0))
+        # Ensure the time is in the future
+        while next_time <= now:
+            next_time += timedelta(days=2)
     
     elif interval == "1w":
         days_until_monday = (7 - now.weekday()) % 7
@@ -195,6 +202,9 @@ def get_next_candle_time(interval="4h"):
             days_until_monday = 7
         next_time = now.replace(hour=0, minute=1, second=0, microsecond=0)
         next_time += timedelta(days=days_until_monday)
+        # Ensure the time is in the future
+        while next_time <= now:
+            next_time += timedelta(days=7)
     
     else:
         logger.warning(f"Unrecognized interval: {interval}, defaulting to 4h")
@@ -276,6 +286,13 @@ async def run_scheduled_scans():
                 
                 # Process timeframes sequentially with a 1-minute delay between each
                 for tf in sorted_timeframes:
+                    # Double-check that the scan time is not in the past
+                    next_time = get_next_candle_time(tf)
+                    wait_seconds = (next_time - datetime.utcnow()).total_seconds()
+                    if wait_seconds < -120:  # More than 2 minutes in the past
+                        logger.warning(f"Scan for {tf} timeframe at {next_time.strftime('%Y-%m-%d %H:%M:%S')} UTC is in the past. Scheduling next occurrence.")
+                        continue
+                    
                     logger.info(f"Starting scheduled scans for {tf} timeframe")
                     
                     # Clear the cache before starting (unless reusing data)
@@ -311,6 +328,10 @@ async def run_scheduled_scans():
                 now = datetime.utcnow()
                 wait_seconds = (next_time - now).total_seconds()
                 
+                if wait_seconds < -120:  # More than 2 minutes in the past
+                    logger.warning(f"Scan for {next_tf} timeframe at {next_time.strftime('%Y-%m-%d %H:%M:%S')} UTC is in the past. Scheduling next occurrence.")
+                    continue
+                
                 if wait_seconds > 0:
                     logger.info(f"Next scan: {next_tf} at {next_time.strftime('%Y-%m-%d %H:%M:%S')} UTC (waiting {wait_seconds/60:.1f} minutes)")
                     await asyncio.sleep(wait_seconds)
@@ -344,19 +365,41 @@ def main():
     logger.info("Market Scanner Service starting up")
     logger.info(f"Project root directory: {project_root}")
     
-    # Set up signal handlers for SIGTERM and SIGINT
+    # Create a new event loop
     loop = asyncio.get_event_loop()
     
-    def handle_shutdown():
+    # Flag to track if shutdown has been initiated
+    shutting_down = False
+    
+    async def shutdown():
+        nonlocal shutting_down
+        if shutting_down:
+            return  # Prevent multiple shutdown attempts
+        shutting_down = True
+        
         logger.info("Received shutdown signal. Stopping scanner...")
+        # Cancel all running tasks except the current one
         tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
         for task in tasks:
             task.cancel()
+        
+        # Wait for all tasks to complete their cancellation
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Run cleanup tasks
+        try:
+            await loop.shutdown_asyncgens()
+        except Exception as e:
+            logger.error(f"Error shutting down async generators: {str(e)}")
+        
+        # Stop the event loop
         loop.stop()
-        loop.run_until_complete(loop.shutdown_asyncgens())
-        loop.close()
         logger.info("Scanner stopped gracefully")
-        sys.exit(0)
+    
+    def handle_shutdown():
+        # Schedule the shutdown coroutine to run in the event loop
+        asyncio.ensure_future(shutdown())
     
     # Register signal handlers
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -366,12 +409,20 @@ def main():
         loop.run_until_complete(run_scheduled_scans())
     except asyncio.CancelledError:
         logger.info("Scanner tasks cancelled during shutdown")
-        handle_shutdown()
+        if not shutting_down:
+            loop.run_until_complete(shutdown())
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
         logger.info("Restarting service in 5 minutes...")
         time_module.sleep(300)
         main()
+    except SystemExit:
+        # Handle SystemExit explicitly to avoid logging it as an error
+        pass
+
+    # If shutdown was initiated, exit the process
+    if shutting_down:
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
