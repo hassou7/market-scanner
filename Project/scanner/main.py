@@ -8,7 +8,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down
-from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa
+from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
 
 kline_cache = {}
@@ -32,13 +32,17 @@ class UnifiedScanner:
             'breakout_bar': 'Breakout Bar',
             'stop_bar': 'Stop Bar',
             'reversal_bar': 'Reversal Bar',
-            'start_bar': 'Start Bar'
+            'start_bar': 'Start Bar',
+            'loaded_bar': 'Loaded Bar',
+            'test_bar': 'Test Bar'
         }
         self.vsa_detectors = {
             'breakout_bar': breakout_bar_vsa,
             'stop_bar': stop_bar_vsa,
             'reversal_bar': reversal_bar_vsa,
-            'start_bar': start_bar_vsa
+            'start_bar': start_bar_vsa,
+            'loaded_bar': loaded_bar_vsa,
+            'test_bar': test_bar_vsa,
         }
 
     def _get_exchange_name(self):
@@ -233,6 +237,12 @@ class UnifiedScanner:
                     params = get_params()
                 elif strategy == 'start_bar':
                     from breakout_vsa.strategies.start_bar import get_params
+                    params = get_params()
+                elif strategy == 'loaded_bar':
+                    from breakout_vsa.strategies.loaded_bar import get_params
+                    params = get_params()
+                elif strategy == 'test_bar':
+                    from breakout_vsa.strategies.test_bar import get_params
                     params = get_params()
                 else:
                     # Fallback to default extraction if specific import not available

@@ -1,3 +1,4 @@
+#./run_scanner.py
 #!/usr/bin/env python3
 """
 Market Scanner Runner
@@ -274,9 +275,9 @@ async def run_optimized_scans(timeframes=None, users=["default"], send_telegram=
     
     timeframe_strategy_map = {
         "4h": {"spot": ["breakout_bar"], "futures": ["reversal_bar", "volume_surge"]},
-        "1d": {"spot": ["breakout_bar"], "futures": ["reversal_bar", "volume_surge"]},
-        "2d": {"spot": ["breakout_bar", "start_bar"], "futures": ["reversal_bar", "pin_down"]},
-        "1w": {"spot": ["breakout_bar", "start_bar"], "futures": ["reversal_bar", "pin_down"]}
+        "1d": {"spot": ["breakout_bar",  "test_bar"], "futures": ["reversal_bar", "volume_surge"]},
+        "2d": {"spot": ["breakout_bar", "start_bar", "loaded_bar", "test_bar"], "futures": ["reversal_bar", "pin_down"]},
+        "1w": {"spot": ["breakout_bar", "start_bar", "loaded_bar", "test_bar"], "futures": ["reversal_bar", "pin_down"]}
     }
     
     print_header("RUNNING OPTIMIZED STRATEGY SCANS")

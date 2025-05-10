@@ -32,7 +32,7 @@ class KucoinClient(BaseExchangeClient):
     def _get_fetch_limit(self):
         """Return the number of candles to fetch based on timeframe"""
         return {
-            '1w': 60,      # Weekly needs at least 50+ bars for macro lookback
+            '1w': 120,      # Weekly needs at least 50+ bars for macro lookback
             '2d': 120,     # 2d needs double the daily bars to build enough 2d candles
             '1d': 60,      # Daily needs at least 50+ bars for macro lookback
             '4h': 200      # 4h needs more bars
@@ -63,7 +63,7 @@ class KucoinClient(BaseExchangeClient):
         end_time = int(time.time())
         
         # For weekly data, we need more daily candles
-        fetch_limit = 200 if self.timeframe == '1w' else self.fetch_limit
+        fetch_limit = 500 if self.timeframe == '1w' else self.fetch_limit
         
         params = {
             'symbol': symbol,

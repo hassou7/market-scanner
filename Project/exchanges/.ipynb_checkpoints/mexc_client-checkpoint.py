@@ -34,7 +34,7 @@ class MexcClient(BaseExchangeClient):
     def _get_fetch_limit(self):
         """Return the number of candles to fetch based on timeframe"""
         return {
-            '1w': 200,     # Need at least 200 days to build good weekly data
+            '1w': 120,     # Need at least 200 days to build good weekly data
             '2d': 120,     # Need at least 120 days for 2d candles
             '1d': 60,      # Daily needs at least 60 days for history
             '4h': 200      # 4h needs more bars

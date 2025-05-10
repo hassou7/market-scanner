@@ -30,7 +30,7 @@ class MexcFuturesClient(BaseExchangeClient):
     def _get_fetch_limit(self):
         """Return the number of candles to fetch based on timeframe"""
         return {
-            '1w': 60,
+            '1w': 120,
             '2d': 120,
             '1d': 60,
             '4h': 200

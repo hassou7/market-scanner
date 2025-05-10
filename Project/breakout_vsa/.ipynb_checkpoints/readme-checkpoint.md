@@ -73,8 +73,8 @@ The indicator uses a set of fixed parameters that can be modified in the `breako
   - `direction_opt`: Bar direction requirement ("None", "Up", "Down")
   - `bar_type_opt`: Bar type requirement ("None", "New High", "New Low", etc.)
   - `spread_opt`: Spread requirement ("None", "Wide", "Narrow", "Abnormal")
-  - `volume_opt`: Volume requirement ("None", "High", "Low", "Abnormal")
-  - `close_opt`: Close position requirement ("None", "Off Lows", "In Lows", etc.)
+  - `volume_opt`: Volume requirement ("None", "High", "Low", "Abnormal", "Not Low")
+  - `close_opt`: Close position requirement ("None", "Off Lows", "In Lows", "In Middle", etc.)
 
 - Macro detection parameters:
   - `macro_opt`: Macro condition requirement ("None", "Macro Low", "Macro High")

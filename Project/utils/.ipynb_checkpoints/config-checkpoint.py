@@ -27,7 +27,9 @@ STRATEGY_CHANNELS = {
     "volume_surge": "volume_surge",
     "weak_uptrend": "weakening_trend",
     "pin_down": "weakening_trend",
-    "start_bar": "start_trend"
+    "start_bar": "start_trend",
+    "loaded_bar":"volume_surge",
+    "test_bar":"weakening_trend",
 }
 
 def get_telegram_config(strategies, users=["default"]):

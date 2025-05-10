@@ -27,6 +27,11 @@ def calculate_basic_indicators(df, params):
     result['is_wide_spread'] = (result['spread'] > (result['mean_spread'] + spread_std * result['std_spread'])) & \
                                (result['spread'] <= (result['mean_spread'] + spread_abnormal_std * result['std_spread']))
     result['is_abnormal_spread'] = result['spread'] > (result['mean_spread'] + spread_abnormal_std * result['std_spread'])
+
+    # percentile‐based spread check ---
+    pct_sp = params.get('spread_pct_threshold', 0.10)  # default bottom 10%
+    result['spread_q'] = result['spread'].rolling(lookback).quantile(pct_sp)
+    result['is_narrow_spread_pct'] = result['spread'] <= result['spread_q']
     
     # Volume Calculations
     result['sma20_volume'] = df['volume'].rolling(lookback).mean()
@@ -35,6 +40,14 @@ def calculate_basic_indicators(df, params):
     result['is_high_volume'] = (df['volume'] >= (result['sma20_volume'] - volume_std * result['std_volume'])) & \
                                (df['volume'] <= (result['sma20_volume'] + volume_abnormal_std * result['std_volume']))
     result['is_abnormal_volume'] = df['volume'] > (result['sma20_volume'] + volume_abnormal_std * result['std_volume'])
+    result['is_not_low_volume'] = ~result['is_low_volume']
+
+     # what % of the last lookback bars are below today's volume?
+    pct_vol = params.get('volume_pct_threshold', 0.10)  # default bottom 10%
+    # 10th‐percentile volume over the same window
+    result['volume_q'] = df['volume'].rolling(lookback).quantile(pct_vol)
+    # “true” if today’s vol is in the bottom pct_vol of the last lookback bars
+    result['is_low_volume_pct'] = df['volume'] <= result['volume_q']
     
     # Close Position Calculations
     result['bar_range'] = df['high'] - df['low']
@@ -47,6 +60,7 @@ def calculate_basic_indicators(df, params):
     result['is_off_highs'] = result['close_position'] <= 0.5
     result['is_in_lows'] = result['close_position'] < 0.35
     result['is_off_lows'] = result['close_position'] >= 0.5
+    result['is_in_middle'] = (result['close_position'] > 0.35) & (result['close_position'] < 0.5)
     
     # Momentum Calculations
     result['momentum'] = df['close'] - df['close'].shift(1)
@@ -326,7 +340,11 @@ def apply_condition_filters(df, result, params):
         condition = condition & result['is_narrow_spread']
     elif spread_opt == "Abnormal":
         condition = condition & result['is_abnormal_spread']
-    
+
+    # optional percentile‐spread filter
+    if params.get('use_spread_pct', False):
+        condition &= result['is_narrow_spread_pct']
+
     # Momentum condition
     if momentum_opt == "Wide":
         condition = condition & result['is_wide_momentum']
@@ -340,9 +358,16 @@ def apply_condition_filters(df, result, params):
         condition = condition & result['is_low_volume']
     elif volume_opt == "Abnormal":
         condition = condition & result['is_abnormal_volume']
+    elif volume_opt == "Not Low":
+        condition = condition & result['is_not_low_volume']
+    # optional percentile filter
+    if params.get('use_volume_pct', False):
+        condition &= result['is_low_volume_pct']
     
     # Close location condition
-    if close_opt == "In Highs":
+    if close_opt == "In Middle":
+        condition = condition & result['is_in_middle']
+    elif close_opt == "In Highs":
         condition = condition & result['is_in_highs']
     elif close_opt == "Off Highs":
         condition = condition & result['is_off_highs']
@@ -390,5 +415,11 @@ def apply_condition_filters(df, result, params):
     # Apply high breakout condition if enabled
     if use_high_breakout:
         condition = condition & result['is_high_breakout']
+
+    # Apply test bar specific conditions if this is a test bar strategy
+    is_test_bar_strategy = params.get('is_test_bar_strategy', False)
+    if is_test_bar_strategy:
+        test_bar_condition = apply_test_bar_conditions(df, result, params)
+        condition = condition & test_bar_condition
     
     return condition

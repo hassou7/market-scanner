@@ -125,7 +125,7 @@ spot_scan_configs = [
     },
     {
         "timeframe": "1d",
-        "strategies": ["breakout_bar"],
+        "strategies": ["breakout_bar", "test_bar"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -133,7 +133,7 @@ spot_scan_configs = [
     },
     {
         "timeframe": "2d",
-        "strategies": ["start_bar", "breakout_bar", "volume_surge"],
+        "strategies": ["start_bar", "breakout_bar", "volume_surge", "loaded_bar", "test_bar"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -141,7 +141,7 @@ spot_scan_configs = [
     },
     {
         "timeframe": "1w",
-        "strategies": ["start_bar", "breakout_bar", "volume_surge"],
+        "strategies": ["start_bar", "breakout_bar", "volume_surge", "loaded_bar", "test_bar"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,

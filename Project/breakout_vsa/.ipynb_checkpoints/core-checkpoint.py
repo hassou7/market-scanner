@@ -85,6 +85,18 @@ def reversal_bar_vsa(df):
     strategy_params = get_params()
     return vsa_detector(df, strategy_params)
 
+def loaded_bar_vsa(df):
+    """Detect loaded bars with the loaded bar strategy"""
+    from .strategies.loaded_bar import get_params
+    strategy_params = get_params()
+    return vsa_detector(df, strategy_params)
+
+# def test_bar_vsa(df):
+#     """Detect test bars with the test bar strategy"""
+#     from .strategies.test_bar import get_params
+#     strategy_params = get_params()
+#     return vsa_detector(df, strategy_params)
+    
 def start_bar_vsa(df):
     """Detect Start Bar pattern"""
     from .strategies.start_bar import get_params
@@ -188,3 +200,73 @@ def calculate_start_bar(df, lookback=5, volume_lookback=30, volume_percentile=50
     start_bar = start_bar_pattern & ~start_bar_pattern.shift(1).fillna(False)
     
     return start_bar
+
+def test_bar_vsa(df):
+    """Detect test bars with the test bar strategy"""
+    from .strategies.test_bar import get_params
+    
+    # First get the standard VSA parameters
+    strategy_params = get_params()
+    
+    # Run standard VSA detector
+    condition, result = vsa_detector(df, strategy_params)
+    
+    # Now apply additional test bar conditions
+    # Only if we have enough bars
+    if len(df) >= 5:  # Need at least 5 bars for the complete detection
+        for i in range(len(df)):
+            # Skip early bars where we don't have enough data
+            if i < 2:
+                condition.iloc[i] = False
+                continue
+                
+            # Skip if standard VSA conditions not met
+            if not condition.iloc[i]:
+                continue
+                
+            # 1. Current bar must have volume < 1/2 previous bar volume
+            if df['volume'].iloc[i] >= df['volume'].iloc[i-1] / 2:
+                condition.iloc[i] = False
+                continue
+                
+            # 2. Current bar must have spread < 1/2 previous bar spread
+            curr_spread = df['high'].iloc[i] - df['low'].iloc[i]
+            prev_spread = df['high'].iloc[i-1] - df['low'].iloc[i-1]
+            if curr_spread >= prev_spread / 2:
+                condition.iloc[i] = False
+                continue
+                
+            # 3. Previous bar must be an up bar
+            if df['close'].iloc[i-1] <= df['close'].iloc[i-2]:
+                condition.iloc[i] = False
+                continue
+                
+            # 4. Previous bar must close in the highs (> 75% of spread)
+            prev_bar_range = df['high'].iloc[i-1] - df['low'].iloc[i-1]
+            if prev_bar_range == 0:
+                condition.iloc[i] = False
+                continue
+                
+            close_position = (df['close'].iloc[i-1] - df['low'].iloc[i-1]) / prev_bar_range
+            if close_position <= 0.75:
+                condition.iloc[i] = False
+                continue
+                
+            # 5. Previous bar must be a breakout bar
+            # Use a simplified version of check_range_breakout
+            try:
+                # Get the highest high of the 5 bars before the previous bar
+                highest_5 = max(df['high'].iloc[max(0, i-6):i-1])
+                
+                # Check if previous bar broke resistance
+                broke_resistance = df['close'].iloc[i-1] > highest_5
+                
+                if not broke_resistance:
+                    condition.iloc[i] = False
+                    continue
+            except:
+                # If any error in calculation, fail safe
+                condition.iloc[i] = False
+                continue
+    
+    return condition, result

@@ -1,22 +1,28 @@
-# strategies/breakout_bar.py
+# strategies/test_bar.py
 def get_params():
     return {
         # Basic indicators
         'lookback': 14,
-        'direction_opt': "Up",
-        'bar_type_opt': "New High or Outside Bar", #None
-        'spread_opt': "Wide",
-        'spread_std': 0.5,
-        'spread_abnormal_std': 4.0,
-        'momentum_opt': "Wide",
+        'direction_opt': "Down",
+        'bar_type_opt': "None", #None
+        'spread_opt': "Low",
+        'spread_std': 1.0,
+        'spread_abnormal_std': 99.0,
+        'momentum_opt': "None",
         'momentum_std': 0.5,
-        'volume_opt': "High",
-        'volume_std': 0.5,
-        'volume_abnormal_std': 3.0,
-        'close_opt': "In Highs",
+        'volume_opt': "Low",
+        'volume_std': 1.0,
+        'volume_abnormal_std': 99.0,
+        'close_opt': "None",
+
+        # turn on percentile‐based confluence, bottom 10% (volume and spread)
+        'use_volume_pct':         True,
+        'volume_pct_threshold':   0.10,
+        'use_spread_pct':         True,
+        'spread_pct_threshold':   0.10,
         
         # Macro parameters
-        'macro_opt': "Macro Low",
+        'macro_opt': "None",
         'macro_method': "Combined (Strict)",
         
         # V1 (Price Based) parameters
@@ -32,7 +38,7 @@ def get_params():
         'v2_macro_percentile': 25.0,
         
         # Breakout Close parameters
-        'use_breakout_close': True,
+        'use_breakout_close': False,
         'breakout_close_percent': 30.0,
 
         # New Arctangent Ratio condition
@@ -40,7 +46,10 @@ def get_params():
         'arctangent_ratio_threshold': 1.0,
 
         # High Breakout parameters
-        'use_high_breakout': True,  # Enable high breakout detection for breakout_bar strategy
+        'use_high_breakout': False,  # Enable high breakout detection for breakout_bar strategy
         'high_breakout_lookback': 10,
-        'high_breakout_count_percent': 10
+        'high_breakout_count_percent': 10,
+        
+        # Test bar specific flag
+        'is_test_bar_strategy': True,
     }

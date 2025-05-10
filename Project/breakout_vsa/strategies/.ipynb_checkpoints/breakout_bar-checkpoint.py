@@ -9,7 +9,7 @@ def get_params():
         'spread_std': 0.5,
         'spread_abnormal_std': 4.0,
         'momentum_opt': "Wide",
-        'momentum_std': 0.75,
+        'momentum_std': 0.5,
         'volume_opt': "High",
         'volume_std': 0.5,
         'volume_abnormal_std': 3.0,
