@@ -10,7 +10,12 @@ import numpy as np
 from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
+import os
 
+# Function to check if progress bars should be disabled
+def should_disable_progress():
+    return os.environ.get("DISABLE_PROGRESS") == "1"
+    
 kline_cache = {}
 
 class UnifiedScanner:
@@ -366,24 +371,25 @@ class UnifiedScanner:
     async def scan_all_markets(self):
         try:
             await self.init_session()
-            symbols = await self.exchange_client.get_all_spot_symbols() # To scan single symbol ['L3USDT'] 
+            symbols = await self.exchange_client.get_all_spot_symbols()
             timeframe = self.exchange_client.timeframe
             logging.info(f"Found {len(symbols)} markets on {self.exchange_name} for {timeframe} timeframe")
             
             all_results = {strategy: [] for strategy in self.strategies}
-            with tqdm(total=len(symbols), desc=f"Scanning {self.exchange_name} markets ({timeframe})") as pbar:
-                for i in range(0, len(symbols), self.batch_size):
-                    batch = symbols[i:i + self.batch_size]
-                    tasks = [self.scan_market(symbol) for symbol in batch]
-                    batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-                    for result in batch_results:
-                        if isinstance(result, dict) and result:
-                            for strategy, res in result.items():
-                                if res:
-                                    all_results[strategy].append(res)
-                                    logging.info(f"{strategy} detected for {res['symbol']}")
-                    pbar.update(len(batch))
-                    await asyncio.sleep(1.0)
+            # Always disable progress bars for parallel scans
+            logging.info(f"Processing {len(symbols)} symbols for {self.exchange_name}...")
+            for i in range(0, len(symbols), self.batch_size):
+                batch = symbols[i:i + self.batch_size]
+                tasks = [self.scan_market(symbol) for symbol in batch]
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                for result in batch_results:
+                    if isinstance(result, dict) and result:
+                        for strategy, res in result.items():
+                            if res:
+                                all_results[strategy].append(res)
+                                logging.info(f"{strategy} detected for {res['symbol']}")
+                await asyncio.sleep(1.0)
+            
             for strategy, results in all_results.items():
                 if results and strategy in self.telegram_config:
                     await self.send_telegram_message(strategy, results)

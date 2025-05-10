@@ -4,7 +4,6 @@ AWS Scanner Service
 
 This script runs on an AWS server to scan multiple exchanges on different timeframes.
 It respects the specific timing requirements for 2d and 1w candles based on exchange implementations.
-Now with parallel scanning across exchanges for each timeframe.
 
 Usage:
     python aws_scanner_service.py [--debug]
@@ -81,14 +80,14 @@ futures_exchanges = [
 ]
 
 futures_scan_configs = [
-    # {
-    #     "timeframe": "4h",
-    #     "strategies": [ "volume_surge"],
-    #     "exchanges": futures_exchanges,
-    #     "users": ["default"],
-    #     "send_telegram": True,
-    #     "min_volume_usd": None
-    # },
+    {
+        "timeframe": "4h",
+        "strategies": ["reversal_bar", "volume_surge"],
+        "exchanges": futures_exchanges,
+        "users": ["default"],
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
     {
         "timeframe": "1d",
         "strategies": ["reversal_bar", "volume_surge"],
@@ -126,7 +125,7 @@ spot_scan_configs = [
     },
     {
         "timeframe": "1d",
-        "strategies": ["breakout_bar", "test_bar", "loaded_bar", "volume_surge"],
+        "strategies": ["breakout_bar", "test_bar"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -213,15 +212,16 @@ def get_next_candle_time(interval="4h"):
     
     return next_time
 
-async def run_scan_parallel(config):
-    """Run a single scan configuration using parallel scanning"""
+async def run_scan(config):
+    """Run a single scan configuration"""
     try:
-        # Import the parallel scanner function
-        from run_parallel_scanner import run_parallel_exchanges
+        from run_scanner import run_all_exchanges
+        from scanner.main import kline_cache
+        kline_cache.clear()
         
-        logger.info(f"Running parallel scan for {config['timeframe']} timeframe with strategies: {config['strategies']} on {config['exchanges']}")
+        logger.info(f"Running scan for {config['timeframe']} timeframe with strategies: {config['strategies']} on {config['exchanges']}")
         
-        result = await run_parallel_exchanges(
+        result = await run_all_exchanges(
             timeframe=config['timeframe'],
             strategies=config['strategies'],
             exchanges=config['exchanges'],
@@ -234,48 +234,12 @@ async def run_scan_parallel(config):
         for strategy, signals in result.items():
             signal_count += len(signals)
         
-        logger.info(f"Parallel scan complete: Found {signal_count} signals for {config['timeframe']} timeframe")
+        logger.info(f"Scan complete: Found {signal_count} signals for {config['timeframe']} timeframe")
         return signal_count
     
     except Exception as e:
-        logger.error(f"Error running parallel scan: {str(e)}")
+        logger.error(f"Error running scan: {str(e)}")
         return 0
-
-async def run_scans_for_timeframe(timeframe, configs):
-    """Run all configurations for a specific timeframe"""
-    logger.info(f"Starting scan batch for {timeframe} timeframe")
-    
-    # Group configs by strategy type (futures vs spot)
-    futures_configs = [c for c in configs if any(e in c['exchanges'] for e in futures_exchanges)]
-    spot_configs = [c for c in configs if any(e in c['exchanges'] for e in spot_exchanges)]
-    
-    # Run futures and spot configs in parallel if both exist
-    tasks = []
-    if futures_configs:
-        futures_config = futures_configs[0]  # Take the first config
-        tasks.append(run_scan_parallel(futures_config))
-    
-    if spot_configs:
-        spot_config = spot_configs[0]  # Take the first config
-        tasks.append(run_scan_parallel(spot_config))
-    
-    # Wait for all tasks to complete
-    if tasks:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results
-        total_signals = 0
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"Error in scan: {str(result)}")
-            else:
-                total_signals += result
-        
-        logger.info(f"Completed all scans for {timeframe}. Total signals found: {total_signals}")
-        return total_signals
-    
-    logger.info(f"No configurations to run for {timeframe}")
-    return 0
 
 async def run_scheduled_scans():
     """
@@ -341,18 +305,18 @@ async def run_scheduled_scans():
                     kline_cache.clear()
                     logger.info(f"Cache cleared before processing {tf} timeframe")
                     
-                    # Run all configs for this timeframe in parallel
+                    # Run all configs for this timeframe
+                    configs = timeframe_configs[tf]
+                    total_signals = 0
+                    
                     try:
-                        # Get all configs for this timeframe
-                        configs = timeframe_configs.get(tf, [])
-                        if configs:
-                            total_signals = await run_scans_for_timeframe(tf, configs)
-                            logger.info(f"Completed {tf} scan. Total signals found: {total_signals}")
-                        else:
-                            logger.warning(f"No configurations found for timeframe {tf}")
+                        for config in configs:
+                            signals = await run_scan(config)
+                            total_signals += signals
                         
                         # Update last execution time
                         last_execution[tf] = datetime.utcnow()
+                        logger.info(f"Completed {tf} scan. Total signals found: {total_signals}")
                     except Exception as e:
                         logger.error(f"Error executing {tf} scan: {str(e)}")
                     

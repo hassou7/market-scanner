@@ -73,12 +73,11 @@ project/
 │   └── mexc_client.py          # MEXC client
 ├── scanner/                    # Market scanning logic
 │   ├── __init__.py
-│   ├── main.py                 # Scanner main functions
-│   ├── market_scanner.py       # VSA-based market scanner
-│   └── custom_scanner.py       # Custom strategy scanner
+│   └── main.py                 # Scanner main functions
 ├── utils/                      # Utility functions and configuration
 │   ├── __init__.py
 │   └── config.py               # Configuration values
+├── run_parallel_scanner.py  
 └── vsa_and_custom_scanner.ipynb  # Jupyter notebook interface
 ```
 

@@ -1,5 +1,4 @@
 #breakout_vsa/core.py
-
 import pandas as pd
 import numpy as np
 from .helpers import (
@@ -22,6 +21,8 @@ def vsa_detector(df, strategy_params):
     Returns:
     pandas.Series
         Boolean series indicating where the pattern conditions are met
+    pandas.DataFrame
+        Result DataFrame with calculated indicators
     """
     # Ensure we have all required columns
     required_columns = ['open', 'high', 'low', 'close', 'volume']
@@ -42,22 +43,13 @@ def vsa_detector(df, strategy_params):
             prev_close_range=strategy_params.get('prev_close_range', 75)
         )
         
-        # Create a result DataFrame to maintain consistent return structure
         result = pd.DataFrame(index=df.index)
-        
-        # Add arctan ratio for consistency with other patterns
         result['arctan_ratio'] = pd.Series(np.nan, index=df.index)
-        
         return condition, result
     
-    # Standard VSA pattern flow for other patterns
-    # Calculate all necessary indicators using helper functions
+    # Calculate all necessary indicators
     result = calculate_basic_indicators(df, strategy_params)
-    
-    # Calculate price-based macro indicators (V1)
     result = calculate_price_based_macro(df, result, strategy_params)
-    
-    # Calculate count-based macro indicators (V2)
     result = calculate_count_based_macro(df, result, strategy_params)
     
     # Apply filters based on configured conditions
@@ -65,55 +57,12 @@ def vsa_detector(df, strategy_params):
     
     return condition, result
 
-# Functions for specific strategies - provides backward compatibility
-
-def breakout_bar_vsa(df):
-    """Detect breakout bars with the breakout bar strategy"""
-    from .strategies.breakout_bar import get_params
-    strategy_params = get_params()
-    return vsa_detector(df, strategy_params)
-
-def stop_bar_vsa(df):
-    """Detect stop bars with the stop bar strategy"""
-    from .strategies.stop_bar import get_params
-    strategy_params = get_params()
-    return vsa_detector(df, strategy_params)
-
-def reversal_bar_vsa(df):
-    """Detect reversal bars with the reversal bar strategy"""
-    from .strategies.reversal_bar import get_params
-    strategy_params = get_params()
-    return vsa_detector(df, strategy_params)
-
-def loaded_bar_vsa(df):
-    """Detect loaded bars with the loaded bar strategy"""
-    from .strategies.loaded_bar import get_params
-    strategy_params = get_params()
-    return vsa_detector(df, strategy_params)
-
-# def test_bar_vsa(df):
-#     """Detect test bars with the test bar strategy"""
-#     from .strategies.test_bar import get_params
-#     strategy_params = get_params()
-#     return vsa_detector(df, strategy_params)
-    
-def start_bar_vsa(df):
-    """Detect Start Bar pattern"""
-    from .strategies.start_bar import get_params
-    strategy_params = get_params()
-    return vsa_detector(df, strategy_params)
-
 def calculate_start_bar(df, lookback=5, volume_lookback=30, volume_percentile=50, 
                        low_percentile=75, range_percentile=75, close_off_lows_percent=50,
                        prev_close_range=75):
     """
     Calculate the Start Bar pattern indicator based on updated conditions
-    
-    Parameters:
-    df : pandas.DataFrame
-        DataFrame with columns: 'high', 'low', 'close', 'volume'
     """
-    # Convert the input data to a DataFrame if it's not already
     df = pd.DataFrame(df) if not isinstance(df, pd.DataFrame) else df
     
     def percentile_rank(series, length):
@@ -140,7 +89,7 @@ def calculate_start_bar(df, lookback=5, volume_lookback=30, volume_percentile=50
     
     # Calculate rolling values using volume_lookback
     df['macro_low'] = df['low'].rolling(volume_lookback).min()
-    df['macro_high'] = df['high'].rolling(volume_lookback).min()
+    df['macro_high'] = df['high'].rolling(volume_lookback).max()
     df['highest_high'] = df['high'].rolling(lookback).max()
     
     # Volume conditions
@@ -201,72 +150,95 @@ def calculate_start_bar(df, lookback=5, volume_lookback=30, volume_percentile=50
     
     return start_bar
 
-def test_bar_vsa(df):
-    """Detect test bars with the test bar strategy"""
-    from .strategies.test_bar import get_params
-    
-    # First get the standard VSA parameters
+def breakout_bar_vsa(df):
+    """Detect breakout bars with the breakout bar strategy"""
+    from .strategies.breakout_bar import get_params
     strategy_params = get_params()
-    
-    # Run standard VSA detector
-    condition, result = vsa_detector(df, strategy_params)
-    
-    # Now apply additional test bar conditions
-    # Only if we have enough bars
-    if len(df) >= 5:  # Need at least 5 bars for the complete detection
-        for i in range(len(df)):
-            # Skip early bars where we don't have enough data
-            if i < 2:
-                condition.iloc[i] = False
-                continue
-                
-            # Skip if standard VSA conditions not met
-            if not condition.iloc[i]:
-                continue
-                
-            # 1. Current bar must have volume < 1/2 previous bar volume
-            if df['volume'].iloc[i] >= df['volume'].iloc[i-1] / 2:
-                condition.iloc[i] = False
-                continue
-                
-            # 2. Current bar must have spread < 1/2 previous bar spread
-            curr_spread = df['high'].iloc[i] - df['low'].iloc[i]
-            prev_spread = df['high'].iloc[i-1] - df['low'].iloc[i-1]
-            if curr_spread >= prev_spread / 2:
-                condition.iloc[i] = False
-                continue
-                
-            # 3. Previous bar must be an up bar
-            if df['close'].iloc[i-1] <= df['close'].iloc[i-2]:
-                condition.iloc[i] = False
-                continue
-                
-            # 4. Previous bar must close in the highs (> 75% of spread)
-            prev_bar_range = df['high'].iloc[i-1] - df['low'].iloc[i-1]
-            if prev_bar_range == 0:
-                condition.iloc[i] = False
-                continue
-                
-            close_position = (df['close'].iloc[i-1] - df['low'].iloc[i-1]) / prev_bar_range
-            if close_position <= 0.75:
-                condition.iloc[i] = False
-                continue
-                
-            # 5. Previous bar must be a breakout bar
-            # Use a simplified version of check_range_breakout
-            try:
-                # Get the highest high of the 5 bars before the previous bar
-                highest_5 = max(df['high'].iloc[max(0, i-6):i-1])
-                
-                # Check if previous bar broke resistance
-                broke_resistance = df['close'].iloc[i-1] > highest_5
-                
-                if not broke_resistance:
-                    condition.iloc[i] = False
-                    continue
-            except:
-                # If any error in calculation, fail safe
-                condition.iloc[i] = False
-                continue
-    
-    return condition, result
+    return vsa_detector(df, strategy_params)
+
+def stop_bar_vsa(df):
+    """Detect stop bars with the stop bar strategy"""
+    from .strategies.stop_bar import get_params
+    strategy_params = get_params()
+    return vsa_detector(df, strategy_params)
+
+def reversal_bar_vsa(df):
+    """Detect reversal bars with the reversal bar strategy"""
+    from .strategies.reversal_bar import get_params
+    strategy_params = get_params()
+    return vsa_detector(df, strategy_params)
+
+def loaded_bar_vsa(df):
+    """Detect loaded bars with the loaded bar strategy"""
+    from .strategies.loaded_bar import get_params
+    strategy_params = get_params()
+    return vsa_detector(df, strategy_params)
+
+# breakout_vsa/core.py
+
+from .helpers import calculate_basic_indicators
+
+def test_bar_vsa(df):
+    """
+    1. Compute all the basic indicators (spread, volume, down/up-bar flags).
+    2. Build a 'base' condition with exactly the settings you want.
+    3. Loop and apply your extra prev-bar tests.
+    """
+    from .strategies.test_bar import get_params
+    params = get_params()
+
+    # 1) grab all the core columns: is_low_volume, is_narrow_spread, is_down_bar
+    result = calculate_basic_indicators(df, params)
+
+    # 2) build your σ-based base signal
+    base = (
+        # result['is_low_volume'] &
+        # result['is_narrow_spread'] &
+        result['is_down_bar']
+    )
+
+    # 3) now decorate it with your cross-bar rules
+    cond = base.copy()
+    vr = params['test_bar_volume_ratio']
+    sr = params['test_bar_spread_ratio']
+    pct = params['test_bar_close_position']
+    br = params['test_bar_breakout_lookback']
+
+    for i in range(len(df)):
+        if not base.iat[i] or i < 2:
+            cond.iat[i] = False
+            continue
+
+        # a) yesterday was up
+        if df['close'].iat[i-1] <= df['open'].iat[i-1]:
+            cond.iat[i] = False; continue
+
+        # b) today vol < vr * yesterday vol
+        if df['volume'].iat[i] >= df['volume'].iat[i-1] * vr:
+            cond.iat[i] = False; continue
+
+        # c) today spread < sr * yesterday spread
+        today_sp = df['high'].iat[i] - df['low'].iat[i]
+        prev_sp  = df['high'].iat[i-1] - df['low'].iat[i-1]
+        if today_sp >= prev_sp * sr:
+            cond.iat[i] = False; continue
+
+        # d) yesterday closed above pct of its range
+        prev_pos = (df['close'].iat[i-1] - df['low'].iat[i-1]) / prev_sp
+        if prev_pos < pct:
+            cond.iat[i] = False; continue
+
+        # e) optional breakout on yesterday
+        if br:
+            window = df['high'].iloc[max(0, i-1-br):i-1]
+            if df['close'].iat[i-1] <= window.max():
+                cond.iat[i] = False; continue
+
+    return cond, result
+
+
+def start_bar_vsa(df):
+    """Detect Start Bar pattern"""
+    from .strategies.start_bar import get_params
+    strategy_params = get_params()
+    return vsa_detector(df, strategy_params)
