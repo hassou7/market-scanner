@@ -4,7 +4,7 @@ AWS Scanner Service
 
 This script runs on an AWS server to scan multiple exchanges on different timeframes.
 It respects the specific timing requirements for 2d, 3d, 4d and 1w candles based on exchange implementations.
-Now with parallel scanning across exchanges for each timeframe.
+Sequential scanning per exchange - no parallel scanning within same exchange.
 
 Usage:
     python aws_scanner_service.py [--debug]
@@ -80,7 +80,9 @@ futures_exchanges = [
     "mexc_futures"
 ]
 
-futures_scan_configs = [
+# Configuration for each scan - one scan per timeframe per exchange type
+scan_configs = [
+    # 4h scans
     {
         "timeframe": "4h",
         "strategies": ["volume_surge"],
@@ -90,52 +92,19 @@ futures_scan_configs = [
         "min_volume_usd": None
     },
     {
-        "timeframe": "1d",
-        "strategies": ["reversal_bar", "volume_surge"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "2d",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "3d",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "4d",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "1w",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    }
-]
-
-spot_scan_configs = [
-    {
         "timeframe": "4h",
         "strategies": ["breakout_bar"],
         "exchanges": spot_exchanges,
+        "users": ["default"],
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
+    
+    # 1d scans
+    {
+        "timeframe": "1d",
+        "strategies": ["reversal_bar", "volume_surge"],
+        "exchanges": futures_exchanges,
         "users": ["default"],
         "send_telegram": True,
         "min_volume_usd": None
@@ -148,11 +117,31 @@ spot_scan_configs = [
         "send_telegram": True,
         "min_volume_usd": None
     },
+    
+    # 2d scans
+    {
+        "timeframe": "2d",
+        "strategies": ["reversal_bar", "pin_down"],
+        "exchanges": futures_exchanges,
+        "users": ["default"],
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
     {
         "timeframe": "2d",
         "strategies": ["start_bar", "breakout_bar", "volume_surge", "loaded_bar", "confluence"],
         "exchanges": spot_exchanges,
         "users": ["default", "user2"],  # Added user2 for confluence
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
+    
+    # 3d scans
+    {
+        "timeframe": "3d",
+        "strategies": ["reversal_bar", "pin_down"],
+        "exchanges": futures_exchanges,
+        "users": ["default"],
         "send_telegram": True,
         "min_volume_usd": None
     },
@@ -164,11 +153,31 @@ spot_scan_configs = [
         "send_telegram": True,
         "min_volume_usd": None
     },
+    
+    # 4d scans
+    {
+        "timeframe": "4d",
+        "strategies": ["reversal_bar", "pin_down"],
+        "exchanges": futures_exchanges,
+        "users": ["default"],
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
     {
         "timeframe": "4d",
         "strategies": ["start_bar", "breakout_bar", "volume_surge", "loaded_bar", "confluence"],
         "exchanges": spot_exchanges,
         "users": ["default", "user2"],  # Added user2 for confluence
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
+    
+    # 1w scans
+    {
+        "timeframe": "1w",
+        "strategies": ["reversal_bar", "pin_down"],
+        "exchanges": futures_exchanges,
+        "users": ["default"],
         "send_telegram": True,
         "min_volume_usd": None
     },
@@ -181,8 +190,6 @@ spot_scan_configs = [
         "min_volume_usd": None
     }
 ]
-
-all_scan_configs = futures_scan_configs + spot_scan_configs
 
 def get_next_candle_time(interval="4h"):
     """
@@ -230,7 +237,7 @@ def get_next_candle_time(interval="4h"):
             next_time += timedelta(days=2)
     
     elif interval == "3d":
-        reference_date = pd.Timestamp('2025-03-20').normalize()  # Same reference as 2d
+        reference_date = pd.Timestamp('2025-03-20').normalize()  # Same as 2d
         today = pd.Timestamp(now.date())
         days_diff = (today - reference_date).days
         period = days_diff // 3
@@ -243,7 +250,7 @@ def get_next_candle_time(interval="4h"):
             next_time += timedelta(days=3)
     
     elif interval == "4d":
-        reference_date = pd.Timestamp('2025-03-22').normalize()  # Different reference for 4d
+        reference_date = pd.Timestamp('2025-03-22').normalize()
         today = pd.Timestamp(now.date())
         days_diff = (today - reference_date).days
         period = days_diff // 4
@@ -271,244 +278,195 @@ def get_next_candle_time(interval="4h"):
     
     return next_time
 
-async def run_scan_parallel(config):
-    """Run a single scan configuration using parallel scanning"""
+async def run_timeframe_scans(timeframe, configs_for_timeframe):
+    """
+    Run all scans for a specific timeframe:
+    1. Execute strategies one by one (sequential)
+    2. For each strategy, scan all exchanges in parallel
+    3. Reuse cached data within the timeframe
+    4. Confluence strategy runs first if present
+    """
+    logger.info(f"Starting {timeframe} timeframe scans")
+    
+    # Group configs by exchange type (futures vs spot) and extract strategies
+    futures_configs = [c for c in configs_for_timeframe if any(e in c['exchanges'] for e in futures_exchanges)]
+    spot_configs = [c for c in configs_for_timeframe if any(e in c['exchanges'] for e in spot_exchanges)]
+    
+    # Extract unique strategies from each type and prioritize confluence
+    def get_strategy_order(configs):
+        strategies = []
+        for config in configs:
+            for strategy in config['strategies']:
+                if strategy not in strategies:
+                    strategies.append(strategy)
+        
+        # Move confluence to the front if present
+        if 'confluence' in strategies:
+            strategies.remove('confluence')
+            strategies.insert(0, 'confluence')
+        
+        return strategies
+    
+    futures_strategies = get_strategy_order(futures_configs) if futures_configs else []
+    spot_strategies = get_strategy_order(spot_configs) if spot_configs else []
+    
+    logger.info(f"{timeframe} - Futures strategies: {futures_strategies}")
+    logger.info(f"{timeframe} - Spot strategies: {spot_strategies}")
+    
+    total_signals = 0
+    
+    # Run futures strategies sequentially
+    if futures_strategies:
+        logger.info(f"Running {len(futures_strategies)} futures strategies for {timeframe}")
+        for strategy in futures_strategies:
+            # Find the config that contains this strategy
+            strategy_config = None
+            for config in futures_configs:
+                if strategy in config['strategies']:
+                    strategy_config = config.copy()
+                    strategy_config['strategies'] = [strategy]  # Run only this strategy
+                    break
+            
+            if strategy_config:
+                logger.info(f"Running {strategy} on futures exchanges for {timeframe}")
+                signals = await run_single_strategy_scan(strategy_config)
+                total_signals += signals
+                logger.info(f"Completed {strategy} for {timeframe} futures: {signals} signals")
+                
+                # Short delay between strategies
+                await asyncio.sleep(5)
+    
+    # Run spot strategies sequentially  
+    if spot_strategies:
+        logger.info(f"Running {len(spot_strategies)} spot strategies for {timeframe}")
+        for strategy in spot_strategies:
+            # Find the config that contains this strategy
+            strategy_config = None
+            for config in spot_configs:
+                if strategy in config['strategies']:
+                    strategy_config = config.copy()
+                    strategy_config['strategies'] = [strategy]  # Run only this strategy
+                    break
+            
+            if strategy_config:
+                logger.info(f"Running {strategy} on spot exchanges for {timeframe}")
+                signals = await run_single_strategy_scan(strategy_config)
+                total_signals += signals
+                logger.info(f"Completed {strategy} for {timeframe} spot: {signals} signals")
+                
+                # Short delay between strategies
+                await asyncio.sleep(5)
+    
+    logger.info(f"Completed {timeframe} timeframe. Total signals: {total_signals}")
+    return total_signals
+
+async def run_single_strategy_scan(config):
+    """Run a single strategy scan across multiple exchanges in parallel"""
     try:
-        # Import the parallel scanner function
         from run_parallel_scanner import run_parallel_exchanges
         
-        logger.info(f"Running parallel scan for {config['timeframe']} timeframe with strategies: {config['strategies']} on {config['exchanges']}")
+        timeframe = config['timeframe']
+        strategy = config['strategies'][0]  # Should be only one strategy
+        exchanges = config['exchanges']
+        users = config['users']
+        
+        logger.info(f"Running {strategy} strategy on {len(exchanges)} exchanges for {timeframe}")
         
         result = await run_parallel_exchanges(
-            timeframe=config['timeframe'],
-            strategies=config['strategies'],
-            exchanges=config['exchanges'],
-            users=config['users'],
+            timeframe=timeframe,
+            strategies=[strategy],
+            exchanges=exchanges,
+            users=users,
             send_telegram=config['send_telegram'],
             min_volume_usd=config['min_volume_usd']
         )
         
-        signal_count = 0
-        for strategy, signals in result.items():
-            signal_count += len(signals)
-        
-        logger.info(f"Parallel scan complete: Found {signal_count} signals for {config['timeframe']} timeframe")
+        signal_count = sum(len(signals) for signals in result.values())
         return signal_count
-    
+        
     except Exception as e:
-        logger.error(f"Error running parallel scan: {str(e)}")
+        logger.error(f"Error running {config['timeframe']} {config['strategies'][0]} scan: {str(e)}")
         return 0
-
-async def run_scans_for_timeframe(timeframe, configs):
-    """Run all configurations for a specific timeframe"""
-    logger.info(f"Starting scan batch for {timeframe} timeframe")
-    
-    # Group configs by strategy type (futures vs spot)
-    futures_configs = [c for c in configs if any(e in c['exchanges'] for e in futures_exchanges)]
-    spot_configs = [c for c in configs if any(e in c['exchanges'] for e in spot_exchanges)]
-    
-    # Run futures and spot configs in parallel if both exist
-    tasks = []
-    if futures_configs:
-        futures_config = futures_configs[0]  # Take the first config
-        tasks.append(run_scan_parallel(futures_config))
-    
-    if spot_configs:
-        spot_config = spot_configs[0]  # Take the first config
-        tasks.append(run_scan_parallel(spot_config))
-    
-    # Wait for all tasks to complete
-    if tasks:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results
-        total_signals = 0
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"Error in scan: {str(result)}")
-            else:
-                total_signals += result
-        
-        logger.info(f"Completed all scans for {timeframe}. Total signals found: {total_signals}")
-        return total_signals
-    
-    logger.info(f"No configurations to run for {timeframe}")
-    return 0
 
 async def run_scheduled_scans():
     """
-    Run all scans based on a pre-computed schedule with sequential execution
+    Run scans based on their scheduled times:
+    1. Timeframes execute sequentially (4h -> 1d -> 2d -> 3d -> 4d -> 1w)
+    2. Within each timeframe, strategies execute sequentially 
+    3. Within each strategy, exchanges execute in parallel
+    4. Cache is reused within timeframe, cleared between timeframes
     """
-    # Group configs by timeframe
-    timeframe_configs = {}
-    for config in all_scan_configs:
-        timeframe = config['timeframe']
-        if timeframe not in timeframe_configs:
-            timeframe_configs[timeframe] = []
-        timeframe_configs[timeframe].append(config)
-    
-    # Track last execution time for each timeframe
-    last_execution = {tf: None for tf in timeframe_configs.keys()}
-    
-    # Initialize the scan schedule
-    scan_schedule = []
-    
     while True:
         try:
             now = datetime.utcnow()
             logger.info(f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC")
             
-            # If schedule is empty or we need to refresh it, compute the next 24 hours of scans
-            if not scan_schedule:
-                logger.info("Computing scan schedule for the next 24 hours")
-                scan_schedule = compute_scan_schedule(24)  # Next 24 hours
-                logger.info(f"Scheduled scans: {len(scan_schedule)}")
-                for scheduled_time, timeframes in scan_schedule:
-                    logger.info(f"  {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')} UTC: {', '.join(timeframes)}")
+            # Group configs by timeframe
+            timeframes_to_run = {}
             
-            # Check if there are scans to run now
-            if scan_schedule and now >= scan_schedule[0][0]:
-                scheduled_time, timeframes = scan_schedule.pop(0)
-                logger.info(f"Running scheduled scans for {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')} UTC, timeframes: {', '.join(timeframes)}")
+            # Check each scan config to see if it should run now
+            for config in scan_configs:
+                timeframe = config['timeframe']
+                next_candle_time = get_next_candle_time(timeframe)
+                
+                # Check if it's time to run (within 1 minute of candle close)
+                time_diff = (next_candle_time - now).total_seconds()
+                
+                # Run scan if we're within 1 minute after the scheduled time
+                if -60 <= time_diff <= 60:
+                    if timeframe not in timeframes_to_run:
+                        timeframes_to_run[timeframe] = []
+                    timeframes_to_run[timeframe].append(config)
+            
+            if timeframes_to_run:
+                logger.info(f"Running scans for timeframes: {list(timeframes_to_run.keys())}")
                 
                 # Process timeframes in order: 4h -> 1d -> 2d -> 3d -> 4d -> 1w
                 timeframe_priority = ["4h", "1d", "2d", "3d", "4d", "1w"]
-                ordered_timeframes = [tf for tf in timeframe_priority if tf in timeframes]
                 
-                for timeframe in ordered_timeframes:
-                    # Clear cache before each scan
-                    from scanner.main import kline_cache
-                    kline_cache.clear()
-                    logger.info(f"Cache cleared before processing {timeframe} timeframe")
-                    
-                    # Run all configs for this timeframe
-                    try:
-                        configs = timeframe_configs.get(timeframe, [])
-                        if configs:
-                            total_signals = await run_scans_for_timeframe(timeframe, configs)
-                            logger.info(f"Completed {timeframe} scan. Total signals found: {total_signals}")
-                        else:
-                            logger.warning(f"No configurations found for timeframe {timeframe}")
+                for timeframe in timeframe_priority:
+                    if timeframe in timeframes_to_run:
+                        # Clear cache before each timeframe
+                        kline_cache.clear()
+                        logger.info(f"Cache cleared before {timeframe} timeframe")
                         
-                        # Update last execution time
-                        last_execution[timeframe] = datetime.utcnow()
-                    except Exception as e:
-                        logger.error(f"Error executing {timeframe} scan: {str(e)}")
-                    
-                    # Wait 30 seconds before the next timeframe to avoid overlap
-                    if timeframe != ordered_timeframes[-1]:  # Don't wait after the last timeframe
+                        # Run all strategies for this timeframe
+                        await run_timeframe_scans(timeframe, timeframes_to_run[timeframe])
+                        
+                        # Wait 30 seconds between timeframes
                         logger.info(f"Waiting 30 seconds before next timeframe")
                         await asyncio.sleep(30)
+                        
+                logger.info("All scheduled scans completed")
             
-            # No immediate scans to run, calculate optimized wait time
-            if scan_schedule:
-                time_to_next_scan = (scan_schedule[0][0] - now).total_seconds()
-                
-                # Use longer sleep times for far-future scans to optimize resource usage
-                # Wake up at least 15 seconds before the scheduled time
-                if time_to_next_scan > 4 * 3600:  # More than 4 hours away
-                    max_sleep = 2 * 3600  # 2 hours
-                elif time_to_next_scan > 1 * 3600:  # More than 1 hour away
-                    max_sleep = 1800  # 30 minutes
-                else:
-                    # For imminent scans, check more frequently
-                    max_sleep = 300  # 5 minutes
-                
-                # Calculate final wait time: min(time to next scan - 15 seconds, max allowed sleep)
-                wait_time = max(10, min(time_to_next_scan - 15, max_sleep))
-                
-                logger.info(f"Next scan at {scan_schedule[0][0].strftime('%Y-%m-%d %H:%M:%S')} UTC (waiting {wait_time/60:.1f} minutes)")
-                await asyncio.sleep(wait_time)
+            # Calculate next check time
+            next_scan_times = []
+            for config in scan_configs:
+                next_time = get_next_candle_time(config['timeframe'])
+                next_scan_times.append(next_time)
+            
+            if next_scan_times:
+                next_scan = min(next_scan_times)
+                wait_time = max(30, (next_scan - datetime.utcnow()).total_seconds() - 30)  # Check 30s before
+                logger.info(f"Next scan at {next_scan.strftime('%Y-%m-%d %H:%M:%S')} UTC. Waiting {wait_time/60:.1f} minutes")
+                await asyncio.sleep(min(wait_time, 1800))  # Max 30 minutes sleep
             else:
-                # No scans scheduled, wait a short time before recomputing
-                logger.info("No scans scheduled, waiting 5 minutes before recomputing schedule")
-                await asyncio.sleep(300)
-        
+                await asyncio.sleep(300)  # 5 minutes default
+                
         except Exception as e:
             logger.error(f"Error in scheduler: {str(e)}")
             logger.info("Waiting 2 minutes before retrying...")
             await asyncio.sleep(120)
 
-def compute_scan_schedule(hours_ahead):
-    """
-    Compute a schedule of scans for the next X hours, with sequential execution order
-    
-    Args:
-        hours_ahead (int): How many hours to schedule ahead
-        
-    Returns:
-        list: List of (datetime, [timeframes]) tuples in chronological order
-    """
-    now = datetime.utcnow()
-    end_time = now + timedelta(hours=hours_ahead)
-    
-    # Define 4h boundaries
-    hours_4h = [0, 4, 8, 12, 16, 20]
-    
-    # Reference dates for multi-day scans
-    reference_date_2d = pd.Timestamp('2025-03-20').normalize()
-    reference_date_3d = pd.Timestamp('2025-03-20').normalize()  # Same as 2d
-    reference_date_4d = pd.Timestamp('2025-03-22').normalize()
-    
-    # Initialize schedule
-    schedule = []
-    
-    # Current time for iteration
-    current = now.replace(minute=0, second=0, microsecond=0)
-    
-    while current <= end_time:
-        # Process each day
-        for hour in hours_4h:
-            scan_time = current.replace(hour=hour, minute=1)
-            if scan_time < now or scan_time > end_time:
-                continue
-                
-            # Initialize timeframes for this scan time
-            timeframes = []
-            
-            # Always include 4h at 4h boundaries
-            timeframes.append("4h")
-            
-            # At 00:01, check for 1d, 2d, 3d, 4d, 1w
-            if hour == 0:
-                # Always include 1d (daily)
-                timeframes.append("1d")
-                
-                # Check 2d eligibility
-                days_diff_2d = (pd.Timestamp(current.date()) - reference_date_2d).days
-                if days_diff_2d % 2 == 0:  # Valid 2d start day
-                    timeframes.append("2d")
-                
-                # Check 3d eligibility
-                days_diff_3d = (pd.Timestamp(current.date()) - reference_date_3d).days
-                if days_diff_3d % 3 == 0:  # Valid 3d start day
-                    timeframes.append("3d")
-                
-                # Check 4d eligibility
-                days_diff_4d = (pd.Timestamp(current.date()) - reference_date_4d).days
-                if days_diff_4d % 4 == 0:  # Valid 4d start day
-                    timeframes.append("4d")
-                
-                # Check 1w eligibility
-                if current.weekday() == 0:  # Monday
-                    timeframes.append("1w")
-            
-            # Add to schedule if there are timeframes to scan
-            if timeframes:
-                schedule.append((scan_time, timeframes))
-        
-        # Move to next day
-        current += timedelta(days=1)
-    
-    # Sort schedule by time
-    schedule.sort(key=lambda x: x[0])
-    
-    return schedule
-
 def main():
     """Main entry point of the scanner service"""
     logger.info("Market Scanner Service starting up")
     logger.info(f"Project root directory: {project_root}")
+    logger.info(f"Configured {len(scan_configs)} scan configurations")
+    
+    # Print scan configurations
+    for i, config in enumerate(scan_configs, 1):
+        logger.info(f"Config {i}: {config['timeframe']} - {config['strategies']} - {len(config['exchanges'])} exchanges")
     
     # Create a new event loop
     loop = asyncio.get_event_loop()
