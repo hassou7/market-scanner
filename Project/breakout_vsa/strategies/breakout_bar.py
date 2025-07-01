@@ -14,6 +14,11 @@ def get_params():
         'volume_std': 0.5,
         'volume_abnormal_std': 3.0,
         'close_opt': "In Highs",
+
+        'use_volume_pct': True,
+        'volume_pct_threshold': 0.50,
+        'use_spread_pct': False,
+        'spread_pct_threshold': 0.10,
         
         # Macro parameters
         'macro_opt': "Macro Low",

@@ -178,64 +178,88 @@ def loaded_bar_vsa(df):
 
 from .helpers import calculate_basic_indicators
 
-def test_bar_vsa(df):
-    """
-    1. Compute all the basic indicators (spread, volume, down/up-bar flags).
-    2. Build a 'base' condition with exactly the settings you want.
-    3. Loop and apply your extra prev-bar tests.
-    """
-    from .strategies.test_bar import get_params
-    params = get_params()
+# Add this function directly to breakout_vsa/core.py (similar to calculate_start_bar)
 
-    # 1) grab all the core columns: is_low_volume, is_narrow_spread, is_down_bar
-    result = calculate_basic_indicators(df, params)
-
-    # 2) build your σ-based base signal
-    base = (
-        # result['is_low_volume'] &
-        # result['is_narrow_spread'] &
-        result['is_down_bar']
+def calculate_test_bar(df):
+    """
+    Calculate the Test Bar pattern based on these conditions:
+    - Inside bar
+    - Down bar  
+    - Closing off the lows (close >= 35% of spread from low)
+    - Lower volume than previous bar (less than 40%)
+    - Lowest volume in the last 3 bars
+    - Previous bar is up and closing in highs (close > 75% spread)
+    - Previous bar volume is higher than SMA 3 of volume
+    - Previous bar is NOT an inside bar
+    """
+    df = df.copy()
+    
+    # Calculate basic metrics
+    df['bar_range'] = df['high'] - df['low']
+    df['volume_sma_3'] = df['volume'].rolling(3).mean()
+    
+    # Function to check if current bar is an inside bar
+    df['is_inside_bar'] = (df['high'] < df['high'].shift(1)) & (df['low'] > df['low'].shift(1))
+    
+    # Function to check if bar is down (close < open)
+    df['is_down_bar'] = df['close'] < df['open']
+    
+    # Function to check if close is in higher 35% of the spread (closing off the lows)
+    df['close_position'] = np.where(df['bar_range'] != 0, (df['close'] - df['low']) / df['bar_range'], 0)
+    df['close_off_lows'] = df['close_position'] >= 0.35
+    
+    # Function to check if current volume is less than 40% of previous bar volume
+    df['lower_volume_than_prev'] = df['volume'] < (df['volume'].shift(1) * 0.4)
+    
+    # Function to check if current volume is the lowest in last 3 bars
+    df['lowest_volume_in_3_bars'] = (df['volume'] < df['volume'].shift(1)) & (df['volume'] < df['volume'].shift(2))
+    
+    # Function to check if previous bar is up and closing in highs (close > 75% spread)
+    df['prev_bar_range'] = df['bar_range'].shift(1)
+    df['prev_is_up'] = df['close'].shift(1) > df['open'].shift(1)
+    df['prev_close_position'] = np.where(
+        df['prev_bar_range'] != 0, 
+        (df['close'].shift(1) - df['low'].shift(1)) / df['prev_bar_range'], 
+        0
     )
+    df['prev_closing_high'] = df['prev_close_position'] > 0.75
+    df['prev_bar_up_closing_high'] = df['prev_is_up'] & df['prev_closing_high']
+    
+    # Function to check if previous bar volume is higher than SMA(3) of volume
+    df['prev_volume_above_sma3'] = df['volume'].shift(1) > df['volume_sma_3'].shift(1)
+    
+    # Function to check if previous bar is NOT an inside bar
+    df['prev_is_inside_bar'] = (df['high'].shift(1) < df['high'].shift(2)) & (df['low'].shift(1) > df['low'].shift(2))
+    df['prev_not_inside_bar'] = ~df['prev_is_inside_bar']
+    
+    # Main condition: all criteria must be met
+    test_bar_pattern = (
+        df['is_inside_bar'] &
+        df['is_down_bar'] &
+        df['close_off_lows'] &
+        df['lower_volume_than_prev'] &
+        df['lowest_volume_in_3_bars'] &
+        df['prev_bar_up_closing_high'] &
+        df['prev_volume_above_sma3'] &
+        df['prev_not_inside_bar']
+    )
+    
+    # Signal only new occurrences
+    test_bar = test_bar_pattern & ~test_bar_pattern.shift(1).fillna(False)
+    
+    return test_bar
 
-    # 3) now decorate it with your cross-bar rules
-    cond = base.copy()
-    vr = params['test_bar_volume_ratio']
-    sr = params['test_bar_spread_ratio']
-    pct = params['test_bar_close_position']
-    br = params['test_bar_breakout_lookback']
-
-    for i in range(len(df)):
-        if not base.iat[i] or i < 2:
-            cond.iat[i] = False
-            continue
-
-        # a) yesterday was up
-        if df['close'].iat[i-1] <= df['open'].iat[i-1]:
-            cond.iat[i] = False; continue
-
-        # b) today vol < vr * yesterday vol
-        if df['volume'].iat[i] >= df['volume'].iat[i-1] * vr:
-            cond.iat[i] = False; continue
-
-        # c) today spread < sr * yesterday spread
-        today_sp = df['high'].iat[i] - df['low'].iat[i]
-        prev_sp  = df['high'].iat[i-1] - df['low'].iat[i-1]
-        if today_sp >= prev_sp * sr:
-            cond.iat[i] = False; continue
-
-        # d) yesterday closed above pct of its range
-        prev_pos = (df['close'].iat[i-1] - df['low'].iat[i-1]) / prev_sp
-        if prev_pos < pct:
-            cond.iat[i] = False; continue
-
-        # e) optional breakout on yesterday
-        if br:
-            window = df['high'].iloc[max(0, i-1-br):i-1]
-            if df['close'].iat[i-1] <= window.max():
-                cond.iat[i] = False; continue
-
-    return cond, result
-
+def test_bar_vsa(df):
+    """Detect Test Bar pattern"""
+    # Unlike other strategies, test_bar doesn't use the general vsa_detector
+    # It has its own specialized implementation like start_bar
+    condition = calculate_test_bar(df)
+    
+    # Create a minimal result dataframe for consistency with other VSA functions
+    result = pd.DataFrame(index=df.index)
+    result['arctan_ratio'] = pd.Series(np.nan, index=df.index)
+    
+    return condition, result
 
 def start_bar_vsa(df):
     """Detect Start Bar pattern"""

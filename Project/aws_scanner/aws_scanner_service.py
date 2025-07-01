@@ -3,7 +3,7 @@
 AWS Scanner Service
 
 This script runs on an AWS server to scan multiple exchanges on different timeframes.
-It respects the specific timing requirements for 2d and 1w candles based on exchange implementations.
+It respects the specific timing requirements for 2d, 3d, 4d and 1w candles based on exchange implementations.
 Now with parallel scanning across exchanges for each timeframe.
 
 Usage:
@@ -81,14 +81,14 @@ futures_exchanges = [
 ]
 
 futures_scan_configs = [
-    # {
-    #     "timeframe": "4h",
-    #     "strategies": [ "volume_surge"],
-    #     "exchanges": futures_exchanges,
-    #     "users": ["default"],
-    #     "send_telegram": True,
-    #     "min_volume_usd": None
-    # },
+    {
+        "timeframe": "4h",
+        "strategies": ["volume_surge"],
+        "exchanges": futures_exchanges,
+        "users": ["default"],
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
     {
         "timeframe": "1d",
         "strategies": ["reversal_bar", "volume_surge"],
@@ -99,6 +99,22 @@ futures_scan_configs = [
     },
     {
         "timeframe": "2d",
+        "strategies": ["reversal_bar", "pin_down"],
+        "exchanges": futures_exchanges,
+        "users": ["default"],
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
+    {
+        "timeframe": "3d",
+        "strategies": ["reversal_bar", "pin_down"],
+        "exchanges": futures_exchanges,
+        "users": ["default"],
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
+    {
+        "timeframe": "4d",
         "strategies": ["reversal_bar", "pin_down"],
         "exchanges": futures_exchanges,
         "users": ["default"],
@@ -126,7 +142,7 @@ spot_scan_configs = [
     },
     {
         "timeframe": "1d",
-        "strategies": ["breakout_bar", "test_bar", "loaded_bar", "volume_surge"],
+        "strategies": ["breakout_bar", "loaded_bar", "volume_surge"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -134,17 +150,33 @@ spot_scan_configs = [
     },
     {
         "timeframe": "2d",
-        "strategies": ["start_bar", "breakout_bar", "volume_surge", "loaded_bar", "test_bar"],
+        "strategies": ["start_bar", "breakout_bar", "volume_surge", "loaded_bar", "confluence"],
         "exchanges": spot_exchanges,
-        "users": ["default"],
+        "users": ["default", "user2"],  # Added user2 for confluence
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
+    {
+        "timeframe": "3d",
+        "strategies": ["start_bar", "breakout_bar", "volume_surge", "loaded_bar", "confluence"],
+        "exchanges": spot_exchanges,
+        "users": ["default", "user2"],  # Added user2 for confluence
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
+    {
+        "timeframe": "4d",
+        "strategies": ["start_bar", "breakout_bar", "volume_surge", "loaded_bar", "confluence"],
+        "exchanges": spot_exchanges,
+        "users": ["default", "user2"],  # Added user2 for confluence
         "send_telegram": True,
         "min_volume_usd": None
     },
     {
         "timeframe": "1w",
-        "strategies": ["start_bar", "breakout_bar", "volume_surge", "loaded_bar", "test_bar"],
+        "strategies": ["start_bar", "breakout_bar", "volume_surge", "loaded_bar", "confluence"],
         "exchanges": spot_exchanges,
-        "users": ["default"],
+        "users": ["default", "user2"],  # Added user2 for confluence
         "send_telegram": True,
         "min_volume_usd": None
     }
@@ -157,7 +189,7 @@ def get_next_candle_time(interval="4h"):
     Calculate time until next candle close for a given interval
     
     Args:
-        interval (str): Timeframe interval ('4h', '1d', '2d', '1w')
+        interval (str): Timeframe interval ('4h', '1d', '2d', '3d', '4d', '1w')
         
     Returns:
         datetime: Next candle close time in UTC
@@ -196,6 +228,32 @@ def get_next_candle_time(interval="4h"):
         # Ensure the time is in the future
         while next_time <= now:
             next_time += timedelta(days=2)
+    
+    elif interval == "3d":
+        reference_date = pd.Timestamp('2025-03-20').normalize()  # Same reference as 2d
+        today = pd.Timestamp(now.date())
+        days_diff = (today - reference_date).days
+        period = days_diff // 3
+        next_period_start = reference_date + timedelta(days=period * 3 + 3)
+        next_time = datetime.combine(next_period_start, time(0, 1, 0))
+        if now >= next_time:
+            next_time = datetime.combine(next_period_start + timedelta(days=3), time(0, 1, 0))
+        # Ensure the time is in the future
+        while next_time <= now:
+            next_time += timedelta(days=3)
+    
+    elif interval == "4d":
+        reference_date = pd.Timestamp('2025-03-22').normalize()  # Different reference for 4d
+        today = pd.Timestamp(now.date())
+        days_diff = (today - reference_date).days
+        period = days_diff // 4
+        next_period_start = reference_date + timedelta(days=period * 4 + 4)
+        next_time = datetime.combine(next_period_start, time(0, 1, 0))
+        if now >= next_time:
+            next_time = datetime.combine(next_period_start + timedelta(days=4), time(0, 1, 0))
+        # Ensure the time is in the future
+        while next_time <= now:
+            next_time += timedelta(days=4)
     
     elif interval == "1w":
         days_until_monday = (7 - now.weekday()) % 7
@@ -279,7 +337,7 @@ async def run_scans_for_timeframe(timeframe, configs):
 
 async def run_scheduled_scans():
     """
-    Run all scans based on a pre-computed schedule with optimized wait times
+    Run all scans based on a pre-computed schedule with sequential execution
     """
     # Group configs by timeframe
     timeframe_configs = {}
@@ -310,88 +368,70 @@ async def run_scheduled_scans():
             
             # Check if there are scans to run now
             if scan_schedule and now >= scan_schedule[0][0]:
-                scheduled_time, timeframes_to_run = scan_schedule.pop(0)
-                logger.info(f"Running scheduled scan for {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+                scheduled_time, timeframes = scan_schedule.pop(0)
+                logger.info(f"Running scheduled scans for {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')} UTC, timeframes: {', '.join(timeframes)}")
                 
-                # Run each timeframe in order
-                for tf in timeframes_to_run:
-                    if tf == "2d":
-                        # Check if today is a 2d start day
-                        reference_date = pd.Timestamp('2025-03-20').normalize()
-                        today = pd.Timestamp(now.date())
-                        days_diff = (today - reference_date).days
-                        is_2d_start_day = days_diff % 2 == 0
-                        
-                        if not is_2d_start_day:
-                            logger.info(f"Skipping 2d scan as today is not a 2d start day")
-                            continue
-                    
-                    if tf == "1w":
-                        # Check if today is Monday
-                        is_monday = now.weekday() == 0
-                        
-                        if not is_monday:
-                            logger.info(f"Skipping 1w scan as today is not Monday")
-                            continue
-                    
-                    logger.info(f"Starting {tf} timeframe scan")
-                    
+                # Process timeframes in order: 4h -> 1d -> 2d -> 3d -> 4d -> 1w
+                timeframe_priority = ["4h", "1d", "2d", "3d", "4d", "1w"]
+                ordered_timeframes = [tf for tf in timeframe_priority if tf in timeframes]
+                
+                for timeframe in ordered_timeframes:
                     # Clear cache before each scan
                     from scanner.main import kline_cache
                     kline_cache.clear()
-                    logger.info(f"Cache cleared before processing {tf} timeframe")
+                    logger.info(f"Cache cleared before processing {timeframe} timeframe")
                     
-                    # Run all configs for this timeframe in parallel
+                    # Run all configs for this timeframe
                     try:
-                        # Get all configs for this timeframe
-                        configs = timeframe_configs.get(tf, [])
+                        configs = timeframe_configs.get(timeframe, [])
                         if configs:
-                            total_signals = await run_scans_for_timeframe(tf, configs)
-                            logger.info(f"Completed {tf} scan. Total signals found: {total_signals}")
+                            total_signals = await run_scans_for_timeframe(timeframe, configs)
+                            logger.info(f"Completed {timeframe} scan. Total signals found: {total_signals}")
                         else:
-                            logger.warning(f"No configurations found for timeframe {tf}")
+                            logger.warning(f"No configurations found for timeframe {timeframe}")
                         
                         # Update last execution time
-                        last_execution[tf] = datetime.utcnow()
+                        last_execution[timeframe] = datetime.utcnow()
                     except Exception as e:
-                        logger.error(f"Error executing {tf} scan: {str(e)}")
+                        logger.error(f"Error executing {timeframe} scan: {str(e)}")
                     
-                    # Small delay between timeframes
-                    await asyncio.sleep(10)
-                
-                # After running all timeframes for this scheduled time, check if we need to refresh the schedule
-                if not scan_schedule:
-                    continue  # Will refresh the schedule at the top of the loop
+                    # Wait 30 seconds before the next timeframe to avoid overlap
+                    if timeframe != ordered_timeframes[-1]:  # Don't wait after the last timeframe
+                        logger.info(f"Waiting 30 seconds before next timeframe")
+                        await asyncio.sleep(30)
             
             # No immediate scans to run, calculate optimized wait time
-            time_to_next_scan = (scan_schedule[0][0] - now).total_seconds()
-            
-            # Use longer sleep times for far-future scans to optimize resource usage
-            # Wake up at least 15 seconds before the scheduled time
-            if time_to_next_scan > 4 * 3600:  # More than 4 hours away
-                # Sleep for up to 2 hours as requested
-                max_sleep = 2 * 3600  # 2 hours
-            elif time_to_next_scan > 1 * 3600:  # More than 1 hour away
-                max_sleep = 1800  # 30 minutes
+            if scan_schedule:
+                time_to_next_scan = (scan_schedule[0][0] - now).total_seconds()
+                
+                # Use longer sleep times for far-future scans to optimize resource usage
+                # Wake up at least 15 seconds before the scheduled time
+                if time_to_next_scan > 4 * 3600:  # More than 4 hours away
+                    max_sleep = 2 * 3600  # 2 hours
+                elif time_to_next_scan > 1 * 3600:  # More than 1 hour away
+                    max_sleep = 1800  # 30 minutes
+                else:
+                    # For imminent scans, check more frequently
+                    max_sleep = 300  # 5 minutes
+                
+                # Calculate final wait time: min(time to next scan - 15 seconds, max allowed sleep)
+                wait_time = max(10, min(time_to_next_scan - 15, max_sleep))
+                
+                logger.info(f"Next scan at {scan_schedule[0][0].strftime('%Y-%m-%d %H:%M:%S')} UTC (waiting {wait_time/60:.1f} minutes)")
+                await asyncio.sleep(wait_time)
             else:
-                # For imminent scans (less than 1 hour away), check more frequently
-                max_sleep = 300  # 5 minutes
-            
-            # Calculate final wait time: min(time to next scan - 15 seconds, max allowed sleep)
-            wait_time = max(10, min(time_to_next_scan - 15, max_sleep))
-            
-            logger.info(f"Next scan at {scan_schedule[0][0].strftime('%Y-%m-%d %H:%M:%S')} UTC (waiting {wait_time/60:.1f} minutes)")
-            await asyncio.sleep(wait_time)
+                # No scans scheduled, wait a short time before recomputing
+                logger.info("No scans scheduled, waiting 5 minutes before recomputing schedule")
+                await asyncio.sleep(300)
         
         except Exception as e:
             logger.error(f"Error in scheduler: {str(e)}")
             logger.info("Waiting 2 minutes before retrying...")
             await asyncio.sleep(120)
 
-
 def compute_scan_schedule(hours_ahead):
     """
-    Compute a schedule of scans for the next X hours
+    Compute a schedule of scans for the next X hours, with sequential execution order
     
     Args:
         hours_ahead (int): How many hours to schedule ahead
@@ -405,31 +445,62 @@ def compute_scan_schedule(hours_ahead):
     # Define 4h boundaries
     hours_4h = [0, 4, 8, 12, 16, 20]
     
-    # Create the schedule
+    # Reference dates for multi-day scans
+    reference_date_2d = pd.Timestamp('2025-03-20').normalize()
+    reference_date_3d = pd.Timestamp('2025-03-20').normalize()  # Same as 2d
+    reference_date_4d = pd.Timestamp('2025-03-22').normalize()
+    
+    # Initialize schedule
     schedule = []
     
-    # Schedule all 4h boundaries
+    # Current time for iteration
     current = now.replace(minute=0, second=0, microsecond=0)
+    
     while current <= end_time:
-        # For each day
+        # Process each day
         for hour in hours_4h:
             scan_time = current.replace(hour=hour, minute=1)
-            
-            # Skip times in the past
-            if scan_time < now:
+            if scan_time < now or scan_time > end_time:
                 continue
                 
-            # At 00:01, we run 4h->1d->2d->1w in sequence
+            # Initialize timeframes for this scan time
+            timeframes = []
+            
+            # Always include 4h at 4h boundaries
+            timeframes.append("4h")
+            
+            # At 00:01, check for 1d, 2d, 3d, 4d, 1w
             if hour == 0:
-                schedule.append((scan_time, ["4h", "1d", "2d", "1w"]))
-            else:
-                # At other 4h boundaries, we only run 4h
-                schedule.append((scan_time, ["4h"]))
+                # Always include 1d (daily)
+                timeframes.append("1d")
+                
+                # Check 2d eligibility
+                days_diff_2d = (pd.Timestamp(current.date()) - reference_date_2d).days
+                if days_diff_2d % 2 == 0:  # Valid 2d start day
+                    timeframes.append("2d")
+                
+                # Check 3d eligibility
+                days_diff_3d = (pd.Timestamp(current.date()) - reference_date_3d).days
+                if days_diff_3d % 3 == 0:  # Valid 3d start day
+                    timeframes.append("3d")
+                
+                # Check 4d eligibility
+                days_diff_4d = (pd.Timestamp(current.date()) - reference_date_4d).days
+                if days_diff_4d % 4 == 0:  # Valid 4d start day
+                    timeframes.append("4d")
+                
+                # Check 1w eligibility
+                if current.weekday() == 0:  # Monday
+                    timeframes.append("1w")
+            
+            # Add to schedule if there are timeframes to scan
+            if timeframes:
+                schedule.append((scan_time, timeframes))
         
         # Move to next day
         current += timedelta(days=1)
     
-    # Sort the schedule by time (should already be in order, but just to be safe)
+    # Sort schedule by time
     schedule.sort(key=lambda x: x[0])
     
     return schedule

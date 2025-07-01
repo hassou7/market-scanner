@@ -7,7 +7,7 @@ from telegram.ext import Application
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down
+from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
 import os
@@ -34,6 +34,7 @@ class UnifiedScanner:
             'volume_surge': 'Sudden Volume Surge',
             'weak_uptrend': 'Weak Uptrend Detection',
             'pin_down': 'Pin Down Detection',
+            'confluence': 'Confluence Signal',
             'breakout_bar': 'Breakout Bar',
             'stop_bar': 'Stop Bar',
             'reversal_bar': 'Reversal Bar',
@@ -129,6 +130,20 @@ class UnifiedScanner:
                         f"Bearish top bars ago: {result.get('bearishtop_dist', 0)}\n"
                         f"{'='*30}\n"
                     )
+                elif strategy == 'confluence':
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {result.get('volume_ratio', 0):,.2f}x\n"
+                        f"{volume_period} Volume: ${result.get('volume_usd', 0):,.2f}\n"
+                        f"Close Off Low: {result.get('close_off_low', 0):,.1f}%\n"
+                        f"Momentum Score: {result.get('momentum_score', 0):,.2f}\n"
+                        f"Components: Vol={result.get('high_volume', False)}, "
+                        f"Spread={result.get('spread_breakout', False)}, "
+                        f"Mom={result.get('momentum_breakout', False)}\n"
+                        f"{'='*30}\n"
+                    )                    
                 elif strategy == 'volume_surge':
                     signal_message = (
                         f"Symbol: {symbol}\n"
@@ -365,6 +380,52 @@ class UnifiedScanner:
                     result['volume_usd'] = df['volume'].iloc[-2] * df['close'].iloc[-2] if len(df) > 1 else 0
                     results[strategy] = result
                     logging.info(f"{strategy} detected for {symbol}")
+
+            # Handle confluence strategy
+            elif strategy == 'confluence':
+                from custom_strategies import detect_confluence
+                
+                # Check last closed bar
+                if len(df) > 1:
+                    detected, result = detect_confluence(df, check_bar=-2)  # Last closed bar
+                    
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result['timestamp'],
+                            'close': result['close_price'],
+                            'volume': result['volume'],
+                            'volume_usd': result['volume_usd'],
+                            'volume_ratio': result['volume_ratio'],
+                            'close_off_low': result['close_off_low'],
+                            'momentum_score': result['momentum_score'],
+                            'high_volume': result['high_volume'],
+                            'spread_breakout': result['spread_breakout'],
+                            'momentum_breakout': result['momentum_breakout'],
+                            'current_bar': False  # Last closed bar
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+                
+                # Check current bar
+                if len(df) > 2:  # Need sufficient data for proper calculation
+                    detected, result = detect_confluence(df, check_bar=-1)  # Current bar
+                    
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result['timestamp'],
+                            'close': result['close_price'],
+                            'volume': result['volume'],
+                            'volume_usd': result['volume_usd'],
+                            'volume_ratio': result['volume_ratio'],
+                            'close_off_low': result['close_off_low'],
+                            'momentum_score': result['momentum_score'],
+                            'high_volume': result['high_volume'],
+                            'spread_breakout': result['spread_breakout'],
+                            'momentum_breakout': result['momentum_breakout'],
+                            'current_bar': True  # Current bar
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")        
                     
         return results
 

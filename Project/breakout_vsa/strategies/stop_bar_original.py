@@ -2,22 +2,22 @@
 def get_params():
     return {
         # Basic indicators
-        'lookback': 50,
+        'lookback': 14,
         'direction_opt': "Up",
-        'bar_type_opt': "New Low or Outside Bar",
+        'bar_type_opt': "New High",
         'spread_opt': "None",
-        'spread_std': 1.0,
-        'spread_abnormal_std': 4.0,
+        'spread_std': 0.5,
+        'spread_abnormal_std': 3.0,
         'momentum_opt': "None",
         'momentum_std': 0.5,
-        'volume_opt': "High",
-        'volume_std': 1.5,
-        'volume_abnormal_std': 6.0,
-        'close_opt': "in Highs",
+        'volume_opt': "Low",
+        'volume_std': 0.5,
+        'volume_abnormal_std': 3.0,
+        'close_opt': "In Middle",
         
         # Macro parameters
-        'macro_opt': "Macro Low",
-        'macro_method': "Count Based (V2)",
+        'macro_opt': "Macro High",
+        'macro_method': "Combined (Strict)",
         
         # V1 (Price Based) parameters
         'v1_macro_short_lookback': 5,
@@ -26,13 +26,13 @@ def get_params():
         'v1_macro_percentile': 10.0,
         
         # V2 (Count Based) parameters
-        'v2_macro_short_lookback': 20,
-        'v2_macro_medium_lookback': 20,
-        'v2_macro_long_lookback': 20,
-        'v2_macro_percentile': 4.0,
+        'v2_macro_short_lookback': 5,
+        'v2_macro_medium_lookback': 21,
+        'v2_macro_long_lookback': 10,
+        'v2_macro_percentile': 25.0,
         
         # Breakout Close parameters
-        'use_breakout_close': False,
+        'use_breakout_close': True,
         'breakout_close_percent': 80.0,
 
         # New Arctangent Ratio condition

@@ -11,7 +11,8 @@ VOLUME_THRESHOLDS = {
 TELEGRAM_TOKENS = {
     "volume_surge": "7553154813:AAG4KU9eAEhSpFRgIgNR5vpG05mT8at4Udw",
     "start_trend": "7501317114:AAHqd8BYNqR81zWEHAuwQhKji1fOM9HxjdQ",
-    "weakening_trend": "7837067804:AAE1H2XWMlwvogCdhQ7vJpufv6VpXaBFg8Q"
+    "weakening_trend": "7837067804:AAE1H2XWMlwvogCdhQ7vJpufv6VpXaBFg8Q",
+    "confluence": "8066329517:AAHVr6kufZWe8UqCKPfmsRhSPleNlt_7G-g"
 }
 
 TELEGRAM_USERS = {
@@ -22,11 +23,12 @@ TELEGRAM_USERS = {
 
 STRATEGY_CHANNELS = {
     "breakout_bar": "start_trend",
-    "stop_bar": "weakening_trend",
+    "stop_bar": "start_trend",
     "reversal_bar": "weakening_trend",
     "volume_surge": "volume_surge",
     "weak_uptrend": "weakening_trend",
     "pin_down": "weakening_trend",
+    "confluence": "confluence",
     "start_bar": "start_trend",
     "loaded_bar":"volume_surge",
     "test_bar":"weakening_trend",

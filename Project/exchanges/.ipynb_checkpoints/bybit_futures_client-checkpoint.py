@@ -1,3 +1,5 @@
+# exchanges/bybit_futures_client.py
+
 import asyncio
 import aiohttp
 import logging
@@ -10,6 +12,8 @@ from .base_client import BaseExchangeClient
 class BybitFuturesClient(BaseExchangeClient):
     """
     Bybit Futures (Perpetuals) exchange API client for fetching market data
+    Updated with support for 1D, 2D, 3D, 4D, and 1W timeframes
+    
     This class handles only the API interactions and data fetching functionality,
     without any scanning or messaging logic.
     """
@@ -22,18 +26,22 @@ class BybitFuturesClient(BaseExchangeClient):
     def _get_interval_map(self):
         """Map standard timeframes to Bybit Futures API specific intervals"""
         return {
-            '1w': 'W',     # Weekly
-            '2d': 'D',     # For 2d, we'll fetch daily and aggregate
-            '1d': 'D',     # Daily
-            '4h': '240'    # 4-hour (240 minutes)
+            '1w': 'W',     # Weekly - Bybit native support
+            '4d': 'D',     # 4-day - fetch daily and aggregate
+            '3d': 'D',     # 3-day - fetch daily and aggregate
+            '2d': 'D',     # 2-day - fetch daily and aggregate
+            '1d': 'D',     # Daily - Bybit native support
+            '4h': '240'    # 4-hour (240 minutes) - Bybit native support
         }
     
     def _get_fetch_limit(self):
         """Return the number of candles to fetch based on timeframe"""
         return {
-            '1w': 60,      # Weekly needs at least 40+ bars for macro lookback
-            '2d': 120,     # 2d needs 120 daily bars to build enough 2d candles
-            '1d': 60,      # Daily needs at least 60 days for history
+            '1w': 80,      # Weekly needs at least 60+ bars for macro lookback
+            '4d': 200,     # 4d needs 200 daily bars to build 50+ 4d candles
+            '3d': 180,     # 3d needs 180 daily bars to build 60+ 3d candles
+            '2d': 150,     # 2d needs 150 daily bars to build 75+ 2d candles
+            '1d': 80,      # Daily needs at least 80 days for history
             '4h': 200      # 4h needs more bars
         }[self.timeframe]
     
@@ -67,8 +75,8 @@ class BybitFuturesClient(BaseExchangeClient):
         # Get the appropriate interval based on timeframe
         api_interval = self.interval_map[self.timeframe]
         
-        # For 2d timeframe, we need to fetch daily data and then aggregate
-        if self.timeframe == "2d":
+        # For 2d, 3d, 4d timeframes, we need to fetch daily data and then aggregate
+        if self.timeframe in ["2d", "3d", "4d"]:
             api_interval = "D"
         
         params = {
@@ -96,21 +104,35 @@ class BybitFuturesClient(BaseExchangeClient):
                     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                     df.set_index('timestamp', inplace=True)
                     
-                    # Keep only what we need
+                    # Keep only OHLCV columns
                     df = df[['open', 'high', 'low', 'close', 'volume']]
                     
-                    # Reverse the dataframe as Bybit returns newest first
+                    # Bybit returns newest first, so reverse to get oldest first
                     df = df[::-1]
                     
-                    # Only need to aggregate for 2d timeframe
+                    # Process according to timeframe
                     if self.timeframe == "2d":
                         df = self.aggregate_to_2d(df)
+                    elif self.timeframe == "3d":
+                        df = self.aggregate_to_3d(df)
+                    elif self.timeframe == "4d":
+                        df = self.aggregate_to_4d(df)
+                    # For 1w and 1d, Bybit provides native data
+                    # For 4h, Bybit provides native data
                     
                     return df
                 else:
-                    logging.error(f"Error fetching klines for {symbol}: {data}")
+                    # Handle Bybit futures error responses
+                    if data.get('retCode') == 10001:  # Invalid parameter
+                        logging.warning(f"Invalid parameter for {symbol} on Bybit futures")
+                    elif data.get('retCode') == 110001:  # Symbol not found
+                        logging.warning(f"Symbol {symbol} not found on Bybit futures")
+                    else:
+                        logging.error(f"Bybit futures API error for {symbol}: {data}")
                     return None
-        except Exception as e:
-            logging.error(f"Error fetching klines for {symbol}: {str(e)}")
+        except asyncio.TimeoutError:
+            logging.error(f"Timeout fetching klines for {symbol} from Bybit futures")
             return None
-
+        except Exception as e:
+            logging.error(f"Error fetching klines for {symbol} from Bybit futures: {str(e)}")
+            return None
