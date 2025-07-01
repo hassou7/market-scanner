@@ -1,416 +1,470 @@
-# Market Scanner AWS Service
+# Complete AWS Instance Cleanup and Setup Guide
 
-This folder contains everything you need to run your cryptocurrency market pattern scanner as a service on an AWS EC2 instance. This guide is written for beginners, with complete multi-timeframe support including the new 3d and 4d timeframes, plus confluence strategy notifications.
+This guide will help you completely clean your AWS instance and set up the market scanner from scratch using your GitHub repository.
 
-## Directory Structure
+## Prerequisites
 
-```
-Project/
-├── aws_scanner/             # AWS service components
-│   ├── aws_scanner_service.py   # Main service script (UPDATED)
-│   ├── market-scanner.service   # Systemd service configuration (UPDATED)
-│   ├── setup_aws_service.sh     # Setup script (UPDATED)
-│   ├── status.sh                # Quick status checker (NEW)
-│   ├── README.md                # This file (you're reading it!)
-│   └── logs/                    # Log files (created automatically)
-│       ├── scanner_service.log  # Main application logs
-│       ├── systemd_output.log   # Standard output logs
-│       └── systemd_error.log    # Error logs
-├── scanner/                 # Your existing scanner code
-├── exchanges/               # Your existing exchange clients
-├── breakout_vsa/            # Your existing VSA pattern detection code
-├── custom_strategies/       # Your custom strategies (including confluence.py)
-└── run_parallel_scanner.py # Your parallel scanner runner
-```
+- SSH key file: `C:\Users\hbs\.ssh\volume_surge.pem`
+- AWS Instance IP: `16.171.41.211`
+- GitHub Repository: `https://github.com/hassou7/market-scanner`
 
-## New Features (Version 2.0)
-
-- **Extended Timeframes**: Now supports 3d and 4d timeframes alongside existing ones
-- **Confluence Strategy**: Advanced multi-factor signal detection for spot exchanges
-- **Enhanced User Management**: Multiple Telegram recipients for different strategies
-- **Improved Scheduling**: Smart timing logic for all timeframes
-- **Better Error Handling**: Enhanced resilience and automatic recovery
-- **Status Monitoring**: Easy-to-use status checking script
-
-## Features
-
-- **Multi-Timeframe Scanning**: Automatically scans 4h, 1d, 2d, 3d, 4d, and 1w timeframes
-- **Parallel Processing**: Scans multiple exchanges simultaneously for maximum efficiency
-- **Smart Scheduling**: Optimized timing based on candle close schedules
-- **Confluence Detection**: Advanced pattern recognition combining volume, spread, and momentum
-- **Multi-User Notifications**: Different Telegram recipients for different strategies
-- **Cache Optimization**: Reuses data efficiently across timeframes
-- **Auto-Recovery**: Restarts automatically if crashes occur
-- **Comprehensive Logging**: Detailed logs for monitoring and debugging
-
-## Installation on AWS
-
-### 1. Connect to your EC2 instance
+## Step 1: Connect to Your AWS Instance
 
 ```bash
-ssh -i "C:\Users\hbs\.ssh\volume_surge.pem" ec2-user@13.53.165.65
+ssh -i "C:\Users\hbs\.ssh\volume_surge.pem" ec2-user@16.171.41.211
 ```
 
-### 2. Remove Old Files (If Any)
-
-Move to your home directory and remove the market-scanner folder and everything inside it:
+## Step 2: Stop the Running Service
 
 ```bash
-cd ~
-rm -rf market-scanner
-```
+# Stop the market scanner service
+sudo systemctl stop market-scanner.service
 
-### 3. Clone your repository or upload your code
+# Disable it from auto-starting
+sudo systemctl disable market-scanner.service
 
-```bash
-# Option 1: If using git
-git clone https://github.com/hassou7/market-scanner.git
-
-# Option 2: Create directories for manual file uploads
-mkdir -p market-scanner/Project/aws_scanner/logs
-```
-
-### 4. Install Required Tools
-
-Update your server and install Python and Git:
-
-```bash
-sudo yum update -y
-sudo yum install python3 python3-pip git gcc python3-devel -y
-```
-
-### 5. Set Up the Service
-
-a. Move to the aws_scanner folder:
-
-```bash
-cd ~/market-scanner/Project/aws_scanner/
-```
-
-b. Make the setup script runnable:
-
-```bash
-chmod +x setup_aws_service.sh
-```
-
-c. Run the setup script:
-
-```bash
-./setup_aws_service.sh
-```
-
-This sets up the service with all new features including 3d/4d timeframes and confluence strategy.
-
-### 6. Configure Telegram Users (IMPORTANT)
-
-Make sure your `utils/config.py` file has the correct user configuration:
-
-```python
-TELEGRAM_USERS = {
-    "default": {"name": "Houssem", "chat_id": "375812423"},
-    "user1": {"name": "Samed", "chat_id": "2008960887"},
-    "user2": {"name": "Moez", "chat_id": "6511370226"}, 
-}
-```
-
-**Note**: User2 (Moez) will receive confluence strategy notifications for 2d, 3d, 4d, and 1w timeframes.
-
-### 7. Launch the Service
-
-Start the scanner service:
-
-```bash
-sudo systemctl start market-scanner.service
-```
-
-Check if it's running:
-
-```bash
+# Check that it's stopped
 sudo systemctl status market-scanner.service
 ```
 
-Look for `Active: active (running)` in the output. If you see that, it's working!
+Expected output: Service should show as "inactive (dead)"
 
-### 8. Quick Status Check
-
-Use the new status script for a quick overview:
+## Step 3: Clean Up All Files
 
 ```bash
-./status.sh
+# Go to home directory
+cd ~
+
+# Remove all market scanner related files
+rm -rf market-scanner/
+rm -rf Project/
+
+# Remove any other scanner-related directories if they exist
+rm -rf crypto-scanner/
+rm -rf scanner/
+
+# Remove the systemd service file
+sudo rm -f /etc/systemd/system/market-scanner.service
+
+# Remove log rotation config
+sudo rm -f /etc/logrotate.d/market-scanner
+
+# Reload systemd to remove the deleted service
+sudo systemctl daemon-reload
+
+# Clean up any Python virtual environments
+rm -rf venv/
+rm -rf .local/lib/python*/site-packages/scanner*
+rm -rf .local/lib/python*/site-packages/exchanges*
+
+# Optional: Clean package cache
+sudo yum clean all
 ```
 
-This shows service status, recent logs, and helpful commands.
-
-## Timeframe Schedule
-
-### Automatic Scan Times (All times in UTC)
-
-- **4-Hour Scans**: Every 4 hours at 00:01, 04:01, 08:01, 12:01, 16:01, 20:01
-- **Daily Scans**: Every day at 00:01
-- **2-Day Scans**: Every 2 days at 00:01 (starting from March 20, 2025)
-- **3-Day Scans**: Every 3 days at 00:01 (starting from March 20, 2025) **NEW**
-- **4-Day Scans**: Every 4 days at 00:01 (starting from March 22, 2025) **NEW**
-- **Weekly Scans**: Every Monday at 00:01
-
-### Execution Priority
-
-When multiple timeframes trigger simultaneously (e.g., Monday 00:01 UTC), they execute in this order:
-1. **4h** (most time-sensitive)
-2. **1d** 
-3. **2d**
-4. **3d** **NEW**
-5. **4d** **NEW**
-6. **1w** (least time-sensitive)
-
-Each timeframe waits 30 seconds after the previous one completes.
-
-## Strategy Configuration
-
-### Futures Exchanges
-- **4h**: volume_surge
-- **1d**: reversal_bar, volume_surge
-- **2d**: reversal_bar, pin_down
-- **3d**: reversal_bar, pin_down **NEW**
-- **4d**: reversal_bar, pin_down **NEW**
-- **1w**: reversal_bar, pin_down
-
-### Spot Exchanges
-- **4h**: breakout_bar
-- **1d**: breakout_bar, loaded_bar, volume_surge
-- **2d**: start_bar, breakout_bar, volume_surge, loaded_bar, **confluence** **NEW**
-- **3d**: start_bar, breakout_bar, volume_surge, loaded_bar, **confluence** **NEW**
-- **4d**: start_bar, breakout_bar, volume_surge, loaded_bar, **confluence** **NEW**
-- **1w**: start_bar, breakout_bar, volume_surge, loaded_bar, **confluence** **NEW**
-
-### Telegram Notifications
-
-- **Default User (Houssem)**: Receives all strategy notifications
-- **User2 (Moez)**: Receives confluence strategy notifications for 2d, 3d, 4d, and 1w timeframes **NEW**
-
-## Monitoring and Management
-
-### View Logs
+## Step 4: Verify Clean State
 
 ```bash
-# Live main application log
-tail -f ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
+# Check that no scanner processes are running
+ps aux | grep scanner
 
-# Live systemd output
-tail -f ~/market-scanner/Project/aws_scanner/logs/systemd_output.log
+# Check that the service is gone
+sudo systemctl list-unit-files | grep scanner
 
-# Live systemd errors
-tail -f ~/market-scanner/Project/aws_scanner/logs/systemd_error.log
+# List current directory contents
+ls -la
 
-# All logs at once (recent entries)
-./status.sh
+# Check available disk space
+df -h
 ```
 
-### Service Management
+Expected output: No scanner processes, no scanner service files, clean home directory
+
+## Step 5: Update System and Install Dependencies
 
 ```bash
+# Update the system
+sudo yum update -y
+
+# Install required packages
+sudo yum install -y git python3 python3-pip python3-devel gcc
+
+# Verify Python installation
+python3 --version
+pip3 --version
+```
+
+Expected output: Python 3.8+ and pip should be installed
+
+## Step 6: Clone Fresh Repository from GitHub
+
+```bash
+# Clone the repository
+git clone https://github.com/hassou7/market-scanner.git
+
+# Enter the directory
+cd market-scanner
+
+# List contents to verify
+ls -la
+
+# Check if Project directory exists
+ls -la Project/
+```
+
+Expected output: Repository cloned successfully with Project directory visible
+
+## Step 7: Set Up Python Environment
+
+```bash
+# Create virtual environment in the Project directory
+cd Project
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
+```
+
+## Step 8: Install Dependencies from requirements.txt
+
+```bash
+# Make sure you're in the Project directory with requirements.txt
+ls requirements.txt
+
+# Install all dependencies from requirements.txt
+pip install -r requirements.txt
+
+# Verify installations
+python -c "import pandas, aiohttp, tqdm, numpy, telegram; print('✓ All dependencies installed successfully')"
+```
+
+Expected output: All packages should install without errors and the verification should pass
+
+## Step 9: Set Up the AWS Scanner Service
+
+```bash
+# Go to the aws_scanner directory
+cd ~/market-scanner/Project/aws_scanner/
+
+# List files to verify aws_scanner directory exists
+ls -la
+
+# Make the setup script executable
+chmod +x setup_aws_service.sh
+
+# Run the setup script
+./setup_aws_service.sh
+```
+
+Expected output: Setup script should complete successfully and configure the systemd service
+
+## Step 10: Configure and Start the Service
+
+```bash
+# Check the service configuration
+sudo systemctl status market-scanner.service
+
 # Start the service
 sudo systemctl start market-scanner.service
 
-# Stop the service
+# Enable auto-start on boot
+sudo systemctl enable market-scanner.service
+
+# Check that it's running
+sudo systemctl status market-scanner.service
+```
+
+Expected output: Service should show as "active (running)"
+
+## Step 11: Monitor the Service
+
+```bash
+# Check the status script
+cd ~/market-scanner/Project/aws_scanner/
+./status.sh
+
+# Watch live logs (press Ctrl+C to exit)
+tail -f logs/scanner_service.log
+
+# In another terminal session, check service logs
+sudo journalctl -u market-scanner.service -f
+```
+
+Expected output: You should see log messages indicating the scanner is computing schedules and running scans
+
+## Step 12: Verify Everything is Working
+
+```bash
+# Check that the service is active
+sudo systemctl is-active market-scanner.service
+
+# Check that it's enabled for auto-start
+sudo systemctl is-enabled market-scanner.service
+
+# View recent log entries
+tail -20 ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
+
+# Check for any errors
+grep -i error ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | tail -10
+
+# Check for successful scans
+grep -i "scan complete" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | tail -5
+```
+
+Expected output: Service should be active and enabled, logs should show successful scans
+
+## Quick Commands Summary
+
+### Service Management
+```bash
+# Start service
+sudo systemctl start market-scanner.service
+
+# Stop service
 sudo systemctl stop market-scanner.service
 
-# Restart the service
+# Restart service
 sudo systemctl restart market-scanner.service
 
 # Check service status
 sudo systemctl status market-scanner.service
 
-# Enable auto-start on boot (already done by setup)
-sudo systemctl enable market-scanner.service
-
-# Disable auto-start on boot
-sudo systemctl disable market-scanner.service
+# View service logs
+sudo journalctl -u market-scanner.service -f
 ```
 
-### Debug Mode
-
-If you need detailed debugging information:
-
-1. Stop the service:
+### Log Monitoring
 ```bash
-sudo systemctl stop market-scanner.service
+# View live application logs
+tail -f ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
+
+# Quick status check
+cd ~/market-scanner/Project/aws_scanner/ && ./status.sh
+
+# Check for recent errors
+grep -i error ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | tail -10
+
+# Check for recent successful scans
+grep -i "signals found" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | tail -10
 ```
 
-2. Run manually with debug flag:
+### Code Updates
 ```bash
+# Update code from GitHub
+cd ~/market-scanner
+git pull origin main
+
+# Restart service to apply changes
+sudo systemctl restart market-scanner.service
+
+# Check if restart was successful
+sudo systemctl status market-scanner.service
+```
+
+## Troubleshooting
+
+### If the service fails to start:
+```bash
+# Check detailed error logs
+sudo journalctl -u market-scanner.service --no-pager -l
+
+# Check Python path and dependencies
+cd ~/market-scanner/Project
+source venv/bin/activate
+python -c "import sys; print(sys.path)"
+pip list
+```
+
+### If getting "module not found" errors:
+```bash
+# Reinstall dependencies
+cd ~/market-scanner/Project
+source venv/bin/activate
+pip install -r requirements.txt --force-reinstall
+sudo systemctl restart market-scanner.service
+```
+
+### If the service keeps crashing:
+```bash
+# Run manually to see error messages
 cd ~/market-scanner/Project
 source venv/bin/activate
 python aws_scanner/aws_scanner_service.py --debug
 ```
 
-3. Press Ctrl+C to stop, then restart the service:
+## Expected Scanner Behavior
+
+Once running successfully, you should see:
+
+1. **Schedule computation** messages every 24 hours
+2. **Scan execution** messages at scheduled times:
+   - 4h scans: Every 4 hours (00:01, 04:01, 08:01, 12:01, 16:01, 20:01 UTC)
+   - 1d scans: Daily at 00:01 UTC
+   - 2d scans: Every 2 days at 00:01 UTC (from March 20, 2025)
+   - 3d scans: Every 3 days at 00:01 UTC (from March 20, 2025)
+   - 4d scans: Every 4 days at 00:01 UTC (from March 22, 2025)
+   - 1w scans: Weekly on Mondays at 00:01 UTC
+
+3. **Signal notifications** via Telegram when patterns are detected
+4. **Exchange scanning** messages showing markets being processed
+5. **Cache management** messages between timeframes
+
+## Updating the Service Code
+
+If you need to update the scanner service code without doing a full cleanup:
+
+### Method 1: Update via GitHub (Recommended)
+
 ```bash
+# Connect to your instance
+ssh -i "C:\Users\hbs\.ssh\volume_surge.pem" ec2-user@16.171.41.211
+
+# Stop the service
+sudo systemctl stop market-scanner.service
+
+# Navigate to repository
+cd ~/market-scanner
+
+# Pull latest changes
+git pull origin main
+
+# Restart the service
+sudo systemctl start market-scanner.service
+
+# Check status
+sudo systemctl status market-scanner.service
+
+# Monitor logs
+tail -f ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
+```
+
+### Method 2: Replace Service File Manually
+
+```bash
+# Connect to your instance
+ssh -i "C:\Users\hbs\.ssh\volume_surge.pem" ec2-user@16.171.41.211
+
+# Stop the service
+sudo systemctl stop market-scanner.service
+
+# Check that it's stopped
+sudo systemctl status market-scanner.service
+```
+
+Expected output: Service should show "inactive (dead)"
+
+```bash
+# Navigate to the aws_scanner directory
+cd ~/market-scanner/Project/aws_scanner/
+
+# Backup current file (optional)
+cp aws_scanner_service.py aws_scanner_service.py.backup
+
+# Remove the current file
+rm aws_scanner_service.py
+
+# Verify it's removed
+ls -la aws_scanner_service.py
+```
+
+Expected output: "No such file or directory"
+
+```bash
+# Create a new file with nano editor
+nano aws_scanner_service.py
+```
+
+**Now copy and paste your new code into the editor:**
+- Paste your updated code
+- Press `Ctrl + X` to exit
+- Press `Y` to save
+- Press `Enter` to confirm the filename
+
+```bash
+# Make the file executable
+chmod +x aws_scanner_service.py
+
+# Verify the file was created correctly
+ls -la aws_scanner_service.py
+
+# Check the first few lines to make sure it was pasted correctly
+head -10 aws_scanner_service.py
+```
+
+```bash
+# Start the service
+sudo systemctl start market-scanner.service
+
+# Check that it started successfully
+sudo systemctl status market-scanner.service
+```
+
+Expected output: Service should show "active (running)"
+
+```bash
+# Check live logs to verify new functionality
+tail -f ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
+
+# Look for new scan configurations in the logs
+grep -i "Config.*:" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | tail -15
+
+# Check for new timeframes (3d and 4d)
+grep -i "3d\|4d" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | tail -10
+
+# Check for confluence strategy
+grep -i "confluence" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | tail -5
+
+# Check for user2 notifications
+grep -i "user2" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | tail -5
+```
+
+### Verification Steps
+
+After updating the service code, verify everything is working:
+
+```bash
+# Check service status
+sudo systemctl is-active market-scanner.service
+sudo systemctl is-enabled market-scanner.service
+
+# View recent startup logs
+tail -30 ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
+
+# Check for any errors
+grep -i error ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | tail -10
+
+# Verify scan configurations loaded
+grep -i "Configured.*scan configurations" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | tail -1
+```
+
+### Rollback if Issues
+
+If the new code has issues, you can quickly rollback:
+
+```bash
+# Stop the service
+sudo systemctl stop market-scanner.service
+
+# Restore backup (if you made one)
+cp aws_scanner_service.py.backup aws_scanner_service.py
+
+# Or pull previous version from git
+git checkout HEAD~1 aws_scanner/aws_scanner_service.py
+
+# Restart service
 sudo systemctl start market-scanner.service
 ```
 
-## Updating the Service
+## Support
 
-### Remote Updates via SCP
-
-Upload updated files from your local machine:
-
-```bash
-# Upload updated service script
-scp -i "C:\Users\hbs\.ssh\volume_surge.pem" path\to\aws_scanner_service.py ec2-user@13.53.165.65:~/market-scanner/Project/aws_scanner/
-
-# Upload multiple files
-scp -i "C:\Users\hbs\.ssh\volume_surge.pem" path\to\aws_scanner\*.py ec2-user@13.53.165.65:~/market-scanner/Project/aws_scanner/
-
-# Restart the service remotely
-ssh -i "C:\Users\hbs\.ssh\volume_surge.pem" ec2-user@13.53.165.65 "sudo systemctl restart market-scanner.service"
-```
-
-### Local Updates
-
-If you're logged into the server:
-
-```bash
-# Edit the service file
-nano ~/market-scanner/Project/aws_scanner/aws_scanner_service.py
-
-# Restart to apply changes
-sudo systemctl restart market-scanner.service
-```
-
-## Understanding the Confluence Strategy
-
-The confluence strategy combines three factors for high-probability signals:
-
-1. **High Volume**: Volume significantly above average
-2. **Spread Breakout**: Range expansion indicating volatility
-3. **Momentum Breakout**: Strong directional movement
-
-**Confluence signals are only sent to:**
-- Default user (all strategies)
-- User2 (confluence only, on 2d/3d/4d/1w timeframes)
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Service won't start**:
-   ```bash
-   # Check for errors
-   sudo journalctl -u market-scanner.service -f
-   
-   # Check file permissions
-   ls -la ~/market-scanner/Project/aws_scanner/
-   ```
-
-2. **No Telegram notifications**:
-   - Verify bot tokens in `utils/config.py`
-   - Check that bots are started by users
-   - Confirm user chat IDs are correct
-
-3. **Missing confluence signals**:
-   - Ensure user2 is configured correctly
-   - Check that confluence.py exists in custom_strategies/
-   - Verify timeframes (confluence only runs on 2d/3d/4d/1w for spots)
-
-4. **Memory issues**:
-   ```bash
-   # Check memory usage
-   free -h
-   
-   # Check service memory limit
-   sudo systemctl show market-scanner.service | grep Memory
-   ```
-
-### Log Analysis
-
-Key log patterns to look for:
-
-```bash
-# Successful scan
-grep "Parallel scan complete" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
-
-# Confluence detections
-grep "confluence detected" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
-
-# Schedule information
-grep "Computing scan schedule" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
-
-# Error patterns
-grep "Error" ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
-```
-
-### Performance Monitoring
-
-Monitor the service performance:
-
-```bash
-# Check CPU and memory usage
-top -p $(pgrep -f aws_scanner_service.py)
-
-# Check network connections
-netstat -tulpn | grep python
-
-# Check disk space for logs
-df -h ~/market-scanner/Project/aws_scanner/logs/
-```
-
-## Log Rotation
-
-Logs are automatically rotated daily with 14-day retention. Configuration is in `/etc/logrotate.d/market-scanner`.
-
-## Security Features
-
-The service runs with enhanced security:
-- Non-root user execution
-- Private temporary directories
-- Read-only system protection
-- Limited file access permissions
-- Memory limits (2GB max)
-- File descriptor limits (4096 max)
-
-## Backup Recommendations
-
-Consider backing up:
-- Configuration files (`utils/config.py`)
-- Log files (important detections)
-- Service scripts (for easy restoration)
-
-```bash
-# Create backup
-tar -czf market-scanner-backup-$(date +%Y%m%d).tar.gz ~/market-scanner/Project/aws_scanner/
-```
+If you encounter issues:
+1. Check the logs first using the commands above
+2. Verify all dependencies are installed correctly
+3. Ensure your GitHub repository has the latest code
+4. Check that your Telegram configuration is correct in `utils/config.py`
 
 ---
 
-## Quick Reference
-
-### Essential Commands
-```bash
-# Service status and recent logs
-./status.sh
-
-# Restart service
-sudo systemctl restart market-scanner.service
-
-# Live logs
-tail -f logs/scanner_service.log
-
-# Debug mode
-python aws_scanner_service.py --debug
-```
-
-### Important Files
-- Service script: `aws_scanner_service.py`
-- Configuration: `../utils/config.py`
-- Service definition: `market-scanner.service`
-- Logs: `logs/scanner_service.log`
-
-### Key Features
-- ✅ 6 timeframes (4h, 1d, 2d, 3d, 4d, 1w)
-- ✅ Confluence strategy with multi-user notifications
-- ✅ Parallel exchange scanning
-- ✅ Smart cache management
-- ✅ Automatic error recovery
-- ✅ Comprehensive logging
-
-For support or questions about the new features, check the logs or run in debug mode for detailed information.
+**Note**: This setup includes support for all timeframes (4h, 1d, 2d, 3d, 4d, 1w) and the confluence strategy with multi-user Telegram notifications.
