@@ -81,14 +81,14 @@ futures_exchanges = [
 ]
 
 futures_scan_configs = [
-    {
-        "timeframe": "4h",
-        "strategies": ["volume_surge"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
+    # {
+    #     "timeframe": "4h",
+    #     "strategies": [ "volume_surge"],
+    #     "exchanges": futures_exchanges,
+    #     "users": ["default"],
+    #     "send_telegram": True,
+    #     "min_volume_usd": None
+    # },
     {
         "timeframe": "1d",
         "strategies": ["reversal_bar", "volume_surge"],
@@ -233,7 +233,6 @@ async def run_scan_parallel(config):
         signal_count = 0
         for strategy, signals in result.items():
             signal_count += len(signals)
-            logger.info(f"Strategy '{strategy}' found {len(signals)} signals for {config['timeframe']} timeframe")
         
         logger.info(f"Parallel scan complete: Found {signal_count} signals for {config['timeframe']} timeframe")
         return signal_count
@@ -250,30 +249,33 @@ async def run_scans_for_timeframe(timeframe, configs):
     futures_configs = [c for c in configs if any(e in c['exchanges'] for e in futures_exchanges)]
     spot_configs = [c for c in configs if any(e in c['exchanges'] for e in spot_exchanges)]
     
-    total_signals = 0
-    
-    # First run spot configs
-    if spot_configs:
-        spot_config = spot_configs[0]  # Take the first config
-        logger.info(f"Running spot markets for {timeframe} timeframe with strategies: {spot_config['strategies']}")
-        spot_signals = await run_scan_parallel(spot_config)
-        total_signals += spot_signals
-        logger.info(f"Completed spot scans for {timeframe}. Signals found: {spot_signals}")
-    else:
-        logger.info(f"No spot configurations to run for {timeframe}")
-    
-    # Then run futures configs
+    # Run futures and spot configs in parallel if both exist
+    tasks = []
     if futures_configs:
         futures_config = futures_configs[0]  # Take the first config
-        logger.info(f"Running futures markets for {timeframe} timeframe with strategies: {futures_config['strategies']}")
-        futures_signals = await run_scan_parallel(futures_config)
-        total_signals += futures_signals
-        logger.info(f"Completed futures scans for {timeframe}. Signals found: {futures_signals}")
-    else:
-        logger.info(f"No futures configurations to run for {timeframe}")
+        tasks.append(run_scan_parallel(futures_config))
     
-    logger.info(f"Completed all scans for {timeframe}. Total signals found: {total_signals}")
-    return total_signals
+    if spot_configs:
+        spot_config = spot_configs[0]  # Take the first config
+        tasks.append(run_scan_parallel(spot_config))
+    
+    # Wait for all tasks to complete
+    if tasks:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        total_signals = 0
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"Error in scan: {str(result)}")
+            else:
+                total_signals += result
+        
+        logger.info(f"Completed all scans for {timeframe}. Total signals found: {total_signals}")
+        return total_signals
+    
+    logger.info(f"No configurations to run for {timeframe}")
+    return 0
 
 async def run_scheduled_scans():
     """
@@ -311,11 +313,7 @@ async def run_scheduled_scans():
                 scheduled_time, timeframes_to_run = scan_schedule.pop(0)
                 logger.info(f"Running scheduled scan for {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
                 
-                # Special handling for midnight scans (00:01)
-                if scheduled_time.hour == 0 and scheduled_time.minute == 1:
-                    logger.info("Processing midnight scan with multiple timeframes sequentially")
-                
-                # Run each timeframe in sequence
+                # Run each timeframe in order
                 for tf in timeframes_to_run:
                     if tf == "2d":
                         # Check if today is a 2d start day
@@ -343,7 +341,7 @@ async def run_scheduled_scans():
                     kline_cache.clear()
                     logger.info(f"Cache cleared before processing {tf} timeframe")
                     
-                    # Run all configs for this timeframe sequentially
+                    # Run all configs for this timeframe in parallel
                     try:
                         # Get all configs for this timeframe
                         configs = timeframe_configs.get(tf, [])
@@ -358,14 +356,8 @@ async def run_scheduled_scans():
                     except Exception as e:
                         logger.error(f"Error executing {tf} scan: {str(e)}")
                     
-                    # Meaningful delay between timeframes to ensure resources are freed
-                    # Longer delay at midnight when we run multiple timeframes
-                    if scheduled_time.hour == 0 and scheduled_time.minute == 1:
-                        logger.info(f"Waiting 30 seconds between timeframes at midnight scan")
-                        await asyncio.sleep(30)
-                    else:
-                        # Standard delay for other times
-                        await asyncio.sleep(10)
+                    # Small delay between timeframes
+                    await asyncio.sleep(10)
                 
                 # After running all timeframes for this scheduled time, check if we need to refresh the schedule
                 if not scan_schedule:
