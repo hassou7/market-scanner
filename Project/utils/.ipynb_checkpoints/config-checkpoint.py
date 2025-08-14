@@ -12,7 +12,8 @@ TELEGRAM_TOKENS = {
     "volume_surge": "7553154813:AAG4KU9eAEhSpFRgIgNR5vpG05mT8at4Udw",
     "start_trend": "7501317114:AAHqd8BYNqR81zWEHAuwQhKji1fOM9HxjdQ",
     "weakening_trend": "7837067804:AAE1H2XWMlwvogCdhQ7vJpufv6VpXaBFg8Q",
-    "confluence": "8066329517:AAHVr6kufZWe8UqCKPfmsRhSPleNlt_7G-g"
+    "confluence": "8066329517:AAHVr6kufZWe8UqCKPfmsRhSPleNlt_7G-g",
+    "consolidation": "7501317114:AAHqd8BYNqR81zWEHAuwQhKji1fOM9HxjdQ"
 }
 
 TELEGRAM_USERS = {

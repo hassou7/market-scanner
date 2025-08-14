@@ -7,7 +7,7 @@ from telegram.ext import Application
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence
+from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
 import os
@@ -35,6 +35,7 @@ class UnifiedScanner:
             'weak_uptrend': 'Weak Uptrend Detection',
             'pin_down': 'Pin Down Detection',
             'confluence': 'Confluence Signal',
+            'consolidation': 'Consolidation Pattern',
             'breakout_bar': 'Breakout Bar',
             'stop_bar': 'Stop Bar',
             'reversal_bar': 'Reversal Bar',
@@ -143,7 +144,19 @@ class UnifiedScanner:
                         f"Spread={result.get('spread_breakout', False)}, "
                         f"Mom={result.get('momentum_breakout', False)}\n"
                         f"{'='*30}\n"
-                    )                    
+                    )
+                elif strategy == 'consolidation':
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"ATR OK: {result.get('atr_ok', False)}\n"
+                        f"Range: [{result.get('range_low', 0):,.8f} … {result.get('range_high', 0):,.8f}]  "
+                        f"(mid {result.get('range_mid', 0):,.8f})\n"
+                        f"{'='*30}\n"
+                    )
                 elif strategy == 'volume_surge':
                     signal_message = (
                         f"Symbol: {symbol}\n"
@@ -245,38 +258,44 @@ class UnifiedScanner:
         for strategy in self.strategies:
             # Handle VSA-based strategies
             if strategy in self.vsa_detectors:
-                # Get strategy parameters and detect patterns
-                if strategy == 'reversal_bar':
-                    from breakout_vsa.strategies.reversal_bar import get_params
-                    params = get_params()
-                elif strategy == 'breakout_bar':
-                    from breakout_vsa.strategies.breakout_bar import get_params
-                    params = get_params()
-                elif strategy == 'stop_bar':
-                    from breakout_vsa.strategies.stop_bar import get_params
-                    params = get_params()
-                elif strategy == 'start_bar':
-                    from breakout_vsa.strategies.start_bar import get_params
-                    params = get_params()
-                elif strategy == 'loaded_bar':
-                    from breakout_vsa.strategies.loaded_bar import get_params
-                    params = get_params()
-                elif strategy == 'test_bar':
-                    from breakout_vsa.strategies.test_bar import get_params
-                    params = get_params()
-                else:
-                    # Fallback to default extraction if specific import not available
-                    params = self.vsa_detectors[strategy].__defaults__[0] if self.vsa_detectors[strategy].__defaults__ else {}
-                
-                # Run the detector with proper parameters
-                from breakout_vsa.core import vsa_detector
-                condition, result = vsa_detector(df, params)
-                
-                # Fix for start_bar which might have a different return signature
-                if strategy == 'start_bar' and not isinstance(condition, tuple):
-                    arctan_ratio_series = pd.Series(np.nan, index=df.index)  # Default to NaN
-                else:
+                # Special handling for test_bar (like start_bar)
+                if strategy == 'test_bar':
+                    from breakout_vsa.core import test_bar_vsa
+                    condition, result = test_bar_vsa(df)
                     arctan_ratio_series = result['arctan_ratio']
+                else:
+                    # Get strategy parameters for other VSA strategies
+                    if strategy == 'reversal_bar':
+                        from breakout_vsa.strategies.reversal_bar import get_params
+                        params = get_params()
+                    elif strategy == 'breakout_bar':
+                        from breakout_vsa.strategies.breakout_bar import get_params
+                        params = get_params()
+                    elif strategy == 'stop_bar':
+                        from breakout_vsa.strategies.stop_bar import get_params
+                        params = get_params()
+                    elif strategy == 'start_bar':
+                        from breakout_vsa.strategies.start_bar import get_params
+                        params = get_params()
+                    elif strategy == 'loaded_bar':
+                        from breakout_vsa.strategies.loaded_bar import get_params
+                        params = get_params()
+                    else:
+                        # Fallback to default extraction if specific import not available
+                        params = self.vsa_detectors[strategy].__defaults__[0] if self.vsa_detectors[strategy].__defaults__ else {}
+                    
+                    # Run the detector with proper parameters
+                    from breakout_vsa.core import vsa_detector
+                    condition, result = vsa_detector(df, params)
+                    
+                    # Fix for start_bar which might have a different return signature
+                    if strategy == 'start_bar' and not isinstance(condition, tuple):
+                        arctan_ratio_series = pd.Series(np.nan, index=df.index)  # Default to NaN
+                    else:
+                        arctan_ratio_series = result['arctan_ratio']
+                
+                # Process detections for both current and previous bars
+                detected_results = []
                 
                 # Process current bar detection
                 if condition.iloc[-1]:
@@ -287,7 +306,7 @@ class UnifiedScanner:
                     volume_usd_current = df['volume'].iloc[-1] * df['close'].iloc[-1]
                     arctan_ratio = arctan_ratio_series.iloc[-1] if not pd.isna(arctan_ratio_series.iloc[-1]) else 0.0
                     
-                    results[strategy] = {
+                    detected_results.append({
                         'symbol': symbol,
                         'date': idx,
                         'close': df['close'].iloc[-1],
@@ -296,11 +315,11 @@ class UnifiedScanner:
                         'close_off_low': close_off_low,
                         'current_bar': True,
                         'arctan_ratio': arctan_ratio
-                    }
-                    logging.info(f"{strategy} detected for {symbol}")
+                    })
+                    logging.info(f"{strategy} detected for {symbol} (current bar)")
                 
                 # Process last closed bar detection
-                elif len(df) > 1 and condition.iloc[-2]:
+                if len(df) > 1 and condition.iloc[-2]:
                     idx = df.index[-2]
                     volume_mean = df['volume'].rolling(7).mean().iloc[-2]
                     bar_range = df['high'].iloc[-2] - df['low'].iloc[-2]
@@ -308,7 +327,7 @@ class UnifiedScanner:
                     volume_usd_closed = df['volume'].iloc[-2] * df['close'].iloc[-2]
                     arctan_ratio = arctan_ratio_series.iloc[-2] if not pd.isna(arctan_ratio_series.iloc[-2]) else 0.0
                     
-                    results[strategy] = {
+                    detected_results.append({
                         'symbol': symbol,
                         'date': idx,
                         'close': df['close'].iloc[-2],
@@ -317,8 +336,13 @@ class UnifiedScanner:
                         'close_off_low': close_off_low,
                         'current_bar': False,
                         'arctan_ratio': arctan_ratio
-                    }
-                    logging.info(f"{strategy} detected for {symbol}")
+                    })
+                    logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+                
+                # Store all detected results
+                if detected_results:
+                    # If multiple detections, prioritize the most recent one
+                    results[strategy] = detected_results[-1]  # Take the last (most recent) detection
                     
             # Handle volume_surge strategy
             elif strategy == 'volume_surge':
@@ -425,7 +449,52 @@ class UnifiedScanner:
                             'momentum_breakout': result['momentum_breakout'],
                             'current_bar': True  # Current bar
                         }
-                        logging.info(f"{strategy} detected for {symbol} (current bar)")        
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+
+                        # Handle consolidation strategy
+
+            elif strategy == 'consolidation':                
+                # Last closed bar
+                if len(df) > 1:
+                    detected, result = detect_consolidation(df, check_bar=-2)
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result.get('timestamp', df.index[-2]),
+                            'close': df['close'].iloc[-2],
+                            'current_bar': False,
+                            # payload from detector
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
+                            'atr_ok': result.get('atr_ok'),
+                            'range_high': result.get('range_high'),
+                            'range_low': result.get('range_low'),
+                            'range_mid': result.get('range_mid'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+
+                # Current bar
+                if len(df) > 2:
+                    detected, result = detect_consolidation(df, check_bar=-1)
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result.get('timestamp', df.index[-1]),
+                            'close': df['close'].iloc[-1],
+                            'current_bar': True,
+                            # payload from detector
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
+                            'atr_ok': result.get('atr_ok'),
+                            'range_high': result.get('range_high'),
+                            'range_low': result.get('range_low'),
+                            'range_mid': result.get('range_mid'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
                     
         return results
 

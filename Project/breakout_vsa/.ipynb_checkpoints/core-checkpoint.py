@@ -185,18 +185,14 @@ def calculate_test_bar(df):
     Calculate the Test Bar pattern based on these conditions:
     - Inside bar
     - Down bar  
-    - Closing off the lows (close >= 35% of spread from low)
+    - Closing off the lows (close >= 65% of spread from low)
     - Lower volume than previous bar (less than 40%)
     - Lowest volume in the last 3 bars
-    - Previous bar is up and closing in highs (close > 75% spread)
-    - Previous bar volume is higher than SMA 3 of volume
-    - Previous bar is NOT an inside bar
     """
     df = df.copy()
     
     # Calculate basic metrics
     df['bar_range'] = df['high'] - df['low']
-    df['volume_sma_3'] = df['volume'].rolling(3).mean()
     
     # Function to check if current bar is an inside bar
     df['is_inside_bar'] = (df['high'] < df['high'].shift(1)) & (df['low'] > df['low'].shift(1))
@@ -204,9 +200,9 @@ def calculate_test_bar(df):
     # Function to check if bar is down (close < open)
     df['is_down_bar'] = df['close'] < df['open']
     
-    # Function to check if close is in higher 35% of the spread (closing off the lows)
+    # Function to check if close is in higher 65% of the spread (closing off the lows)
     df['close_position'] = np.where(df['bar_range'] != 0, (df['close'] - df['low']) / df['bar_range'], 0)
-    df['close_off_lows'] = df['close_position'] >= 0.35
+    df['close_off_lows'] = df['close_position'] >= 0.65
     
     # Function to check if current volume is less than 40% of previous bar volume
     df['lower_volume_than_prev'] = df['volume'] < (df['volume'].shift(1) * 0.4)
@@ -214,34 +210,13 @@ def calculate_test_bar(df):
     # Function to check if current volume is the lowest in last 3 bars
     df['lowest_volume_in_3_bars'] = (df['volume'] < df['volume'].shift(1)) & (df['volume'] < df['volume'].shift(2))
     
-    # Function to check if previous bar is up and closing in highs (close > 75% spread)
-    df['prev_bar_range'] = df['bar_range'].shift(1)
-    df['prev_is_up'] = df['close'].shift(1) > df['open'].shift(1)
-    df['prev_close_position'] = np.where(
-        df['prev_bar_range'] != 0, 
-        (df['close'].shift(1) - df['low'].shift(1)) / df['prev_bar_range'], 
-        0
-    )
-    df['prev_closing_high'] = df['prev_close_position'] > 0.75
-    df['prev_bar_up_closing_high'] = df['prev_is_up'] & df['prev_closing_high']
-    
-    # Function to check if previous bar volume is higher than SMA(3) of volume
-    df['prev_volume_above_sma3'] = df['volume'].shift(1) > df['volume_sma_3'].shift(1)
-    
-    # Function to check if previous bar is NOT an inside bar
-    df['prev_is_inside_bar'] = (df['high'].shift(1) < df['high'].shift(2)) & (df['low'].shift(1) > df['low'].shift(2))
-    df['prev_not_inside_bar'] = ~df['prev_is_inside_bar']
-    
     # Main condition: all criteria must be met
     test_bar_pattern = (
         df['is_inside_bar'] &
         df['is_down_bar'] &
         df['close_off_lows'] &
         df['lower_volume_than_prev'] &
-        df['lowest_volume_in_3_bars'] &
-        df['prev_bar_up_closing_high'] &
-        df['prev_volume_above_sma3'] &
-        df['prev_not_inside_bar']
+        df['lowest_volume_in_3_bars']
     )
     
     # Signal only new occurrences

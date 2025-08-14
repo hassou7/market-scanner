@@ -1,19 +1,12 @@
 # strategies/test_bar.py
 def get_params():
     """
-    Test Bar strategy parameters.
-    Note: The new test bar implementation uses hardcoded criteria and doesn't 
-    use these parameters, but they are kept for consistency with the framework.
-    
-    The Test Bar pattern detects:
+    Calculate the Test Bar pattern based on these conditions:
     - Inside bar
-    - Down bar (close < open)
-    - Close >= 35% of spread from low
-    - Volume < 40% of previous bar
-    - Lowest volume in last 3 bars
-    - Previous bar: up + close > 75% of range
-    - Previous bar volume > SMA(3) of volume
-    - Previous bar NOT inside bar
+    - Down bar  
+    - Closing off the lows (close >= 65% of spread from low)
+    - Lower volume than previous bar (less than 40%)
+    - Lowest volume in the last 3 bars
     """
     return {
         # These parameters are not used by the new test bar implementation

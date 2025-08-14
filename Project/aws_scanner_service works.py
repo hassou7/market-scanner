@@ -150,7 +150,7 @@ spot_scan_configs = [
     },
     {
         "timeframe": "2d",
-        "strategies": ["confluence", "start_bar", "breakout_bar", "volume_surge", "loaded_bar"],
+        "strategies": ["confluence", "start_bar", "breakout_bar", "volume_surge", "loaded_bar",
         "exchanges": spot_exchanges,
         "users": ["default", "user2"],
         "send_telegram": True,
