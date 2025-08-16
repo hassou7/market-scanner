@@ -81,14 +81,14 @@ futures_exchanges = [
 ]
 
 futures_scan_configs = [
-    # {
-    #     "timeframe": "4h",
-    #     "strategies": [ "volume_surge"],
-    #     "exchanges": futures_exchanges,
-    #     "users": ["default"],
-    #     "send_telegram": True,
-    #     "min_volume_usd": None
-    # },
+    {
+        "timeframe": "4h",
+        "strategies": [ "hbs_breakout"],
+        "exchanges": futures_exchanges,
+        "users": ["default"],
+        "send_telegram": True,
+        "min_volume_usd": None
+    },
     {
         "timeframe": "1d",
         "strategies": ["reversal_bar", "volume_surge"],
@@ -134,7 +134,7 @@ futures_scan_configs = [
 spot_scan_configs = [
     {
         "timeframe": "4h",
-        "strategies": ["breakout_bar"],
+        "strategies": ["hbs_breakout"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -142,7 +142,7 @@ spot_scan_configs = [
     },
     {
         "timeframe": "1d",
-        "strategies": ["breakout_bar", "test_bar", "loaded_bar", "volume_surge"],
+        "strategies": ["consolidation_breakout", "test_bar", "loaded_bar", "volume_surge"],
         "exchanges": spot_exchanges,
         "users": ["default"],
         "send_telegram": True,
@@ -150,33 +150,33 @@ spot_scan_configs = [
     },
     {
         "timeframe": "2d",
-        "strategies": ["confluence", "start_bar", "breakout_bar", "volume_surge", "loaded_bar"],
+        "strategies": ["confluence", "consolidation_breakout",  "hbs_breakout"],
         "exchanges": spot_exchanges,
-        "users": ["default", "user2"],
+        "users": ["default", "user1", "user2"],
         "send_telegram": True,
         "min_volume_usd": None
     },
     {
         "timeframe": "3d",
-        "strategies": ["confluence", "start_bar", "breakout_bar", "volume_surge", "loaded_bar"],
+        "strategies": ["confluence", "consolidation_breakout",  "hbs_breakout"],
         "exchanges": spot_exchanges,
-        "users": ["default", "user2"],
+        "users": ["default", "user1", "user2"],
         "send_telegram": True,
         "min_volume_usd": None
     },
     {
         "timeframe": "4d",
-        "strategies": ["confluence", "start_bar", "breakout_bar", "volume_surge", "loaded_bar"],
+        "strategies": ["confluence", "consolidation_breakout",  "hbs_breakout"],
         "exchanges": spot_exchanges,
-        "users": ["default", "user2"],
+        "users": ["default", "user1", "user2"],
         "send_telegram": True,
         "min_volume_usd": None
     },
     {
         "timeframe": "1w",
-        "strategies": ["confluence", "start_bar", "breakout_bar", "volume_surge", "loaded_bar", "test_bar"],
+        "strategies": ["confluence", "consolidation_breakout", "hbs_breakout", "volume_surge", "loaded_bar", "test_bar", "breakout_bar"],
         "exchanges": spot_exchanges,
-        "users": ["default", "user2"],
+        "users": ["default", "user1", "user2"],
         "send_telegram": True,
         "min_volume_usd": None
     }
