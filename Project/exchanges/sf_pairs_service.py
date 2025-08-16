@@ -1,4 +1,4 @@
-# sf_pairs_service.py
+# exchanges/sf_pairs_service.py
 
 import requests
 import pandas as pd

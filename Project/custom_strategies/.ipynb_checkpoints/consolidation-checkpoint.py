@@ -8,20 +8,24 @@ import numpy as np
 def detect_consolidation(
     df: pd.DataFrame,
     check_bar: int = -1,
+    use_log: bool = True,
+    require_box_breakout: bool = False
 ) -> tuple[bool, dict]:
     """
-    Detect consolidation pattern based on specified criteria.
+    Detect if the specified bar is a breakout from consolidation box and channel.
     
     Args:
         df: DataFrame with OHLC data
         check_bar: Which bar to check (-1 for current, -2 for last closed)
+        use_log: Whether to use log scale for fit
+        require_box_breakout: If True, require breakout from both box and channel; if False, channel breakout sufficient
     
     Returns:
         tuple: (detected: bool, result: dict)
     """
     N = 7
     min_bars_inside = 4
-    max_height_pct = 35.0
+    pct_levels = [35.0, 25.0, 15.0]
     use_atr_filter = True
     atr_len = 14
     atr_sma = 7
@@ -70,8 +74,16 @@ def detect_consolidation(
     atr_slow = pd.Series(atr, index=idx).rolling(atr_sma, min_periods=atr_sma).mean().values
     atr_ok = (~np.isnan(atr)) & (~np.isnan(atr_slow)) & (atr < atr_k * atr_slow) if use_atr_filter else np.ones(n, bool)
 
-    cond_now = (bars_inside >= min_bars_inside) & (height_pct <= max_height_pct) & atr_ok
-    cond_now = np.nan_to_num(cond_now, nan=False)
+    # Compute potential level for each bar (tightest possible)
+    potential_level = np.full(n, -1)
+    for i in range(n):
+        if bars_inside[i] >= min_bars_inside and atr_ok[i]:
+            for lvl in range(len(pct_levels)-1, -1, -1):
+                if height_pct[i] <= pct_levels[lvl]:
+                    potential_level[i] = lvl
+                    break
+
+    cond_now = potential_level >= 0
     cond_prev = np.roll(cond_now, 1); cond_prev[0] = False
     is_entry = cond_now & (~cond_prev)
 
@@ -83,37 +95,110 @@ def detect_consolidation(
     active = []
     boxes = []
 
+    is_breakout = np.zeros(n, dtype=bool)
+    breakout_direction = np.full(n, 0)  # 1 upper, -1 lower, 0 none
     in_box_any = np.zeros(n, dtype=bool)
     box_hi_newest = np.full(n, np.nan); box_lo_newest = np.full(n, np.nan)
     box_age_newest = np.zeros(n, dtype=int)
     entry_idx_new = np.full(n, np.nan); left_idx_new = np.full(n, np.nan)
+    current_level_newest = np.full(n, -1)
 
     for i in range(n):
         if is_entry[i]:
+            lvl = potential_level[i]
             hi, lo = range_high[i], range_low[i]
             if not np.isnan(hi) and not np.isnan(lo):
                 if not any(similar_bounds(hi, lo, b["hi"], b["lo"]) for b in active):
                     left_idx_val = max(0, i - (N - 1))
                     initial_age = min(N, i - left_idx_val + 1)
+                    bx_closes = list(c[left_idx_val:i+1])
                     bx = {
                         "start_idx": i, "start_ts": idx[i],
                         "left_idx": left_idx_val,
                         "left_ts": idx[left_idx_val],
                         "end_idx": None, "end_ts": None,
                         "hi": float(hi), "lo": float(lo),
-                        "age": initial_age
+                        "age": initial_age,
+                        "level": lvl,
+                        "closes": bx_closes  # List of closes inside box
                     }
                     active.append(bx)
                     boxes.append(bx)
 
         keep = []
         for bx in active:
-            if (c[i] > bx["hi"]) or (c[i] < bx["lo"]):
+            # Check for tightening if possible
+            tighter_lvl = potential_level[i]
+            if tighter_lvl > bx["level"] and i - bx["left_idx"] + 1 > N:
+                # Tighten to recent N
+                recent_hi = range_high[i]
+                recent_lo = range_low[i]
+                bx["hi"] = recent_hi
+                bx["lo"] = recent_lo
+                bx["left_idx"] = i - (N - 1)
+                bx["left_ts"] = idx[bx["left_idx"]]
+                bx["age"] = N
+                bx["level"] = tighter_lvl
+                bx["closes"] = list(c[bx["left_idx"]:i])  # Update closes to recent, exclude current since append later
+
+            # Compute channel using closes up to i-1
+            box_closes = np.array(bx["closes"])
+            box_length = len(box_closes)
+            channel_break = False
+            channel_dir = 0
+            if box_length >= 2:
+                if use_log:
+                    box_closes_log = np.log(box_closes)
+                else:
+                    box_closes_log = box_closes
+
+                # Theil-Sen fit
+                slopes = []
+                for j in range(box_length - 1):
+                    for k in range(j + 1, box_length):
+                        sl = (box_closes_log[k] - box_closes_log[j]) / (k - j)
+                        slopes.append(sl)
+                median_slope = np.median(slopes)
+
+                intercepts = []
+                for j in range(box_length):
+                    inc = box_closes_log[j] - median_slope * j
+                    intercepts.append(inc)
+                median_inter = np.median(intercepts)
+
+                # Center for offset
+                mid_x = (box_length - 1) / 2.0
+                mid_fit = median_inter + median_slope * mid_x
+                center_price = np.exp(mid_fit) if use_log else mid_fit
+                box_height = bx["hi"] - bx["lo"]
+                offset = box_height / 2.0 / (center_price if use_log else 1.0)
+                intercept_upper = median_inter + offset
+                intercept_lower = median_inter - offset
+
+                # Extrapolate to current bar (relative index box_length)
+                upper_right_y = np.exp(intercept_upper + median_slope * box_length) if use_log else (intercept_upper + median_slope * box_length)
+                lower_right_y = np.exp(intercept_lower + median_slope * box_length) if use_log else (intercept_lower + median_slope * box_length)
+
+                if c[i] > upper_right_y:
+                    channel_break = True
+                    channel_dir = 1
+                elif c[i] < lower_right_y:
+                    channel_break = True
+                    channel_dir = -1
+
+            box_break = (c[i] > bx["hi"]) or (c[i] < bx["lo"])
+
+            # Set breakout if conditions met
+            if (require_box_breakout and box_break and channel_break) or (not require_box_breakout and channel_break):
+                breakout_direction[i] = channel_dir
+
+            if box_break:
                 bx["end_idx"] = i; bx["end_ts"] = idx[i]
             else:
+                keep.append(bx)
+                bx["closes"].append(c[i])
                 if i > bx["start_idx"]:
                     bx["age"] = i - bx["left_idx"] + 1
-                keep.append(bx)
         active = keep
 
         if active:
@@ -122,40 +207,44 @@ def detect_consolidation(
             box_hi_newest[i] = newest["hi"]; box_lo_newest[i] = newest["lo"]
             box_age_newest[i] = newest["age"]
             entry_idx_new[i] = newest["start_idx"]; left_idx_new[i] = newest["left_idx"]
+            current_level_newest[i] = newest["level"]
         else:
             in_box_any[i] = False; box_age_newest[i] = 0
             entry_idx_new[i] = np.nan; left_idx_new[i] = np.nan
+            current_level_newest[i] = -1
 
     i_check = check_bar if check_bar < 0 else int(check_bar)
     if i_check < 0: i_check = n + i_check
     if i_check < 0 or i_check >= n:
         return False, {"reason": "bad_check_bar"}
 
-    if not in_box_any[i_check]:
-        return False, {"reason": "not_in_box", "timestamp": idx[i_check]}
+    if breakout_direction[i_check] == 0:
+        return False, {"reason": "not_breakout", "timestamp": idx[i_check]}
 
-    ei = int(entry_idx_new[i_check]) if not np.isnan(entry_idx_new[i_check]) else None
-    li = int(left_idx_new[i_check]) if not np.isnan(left_idx_new[i_check]) else None
+    # Use i_check-1 for box info, since at breakout, box is from previous
+    ei = int(entry_idx_new[i_check-1]) if not np.isnan(entry_idx_new[i_check-1]) else None
+    li = int(left_idx_new[i_check-1]) if not np.isnan(left_idx_new[i_check-1]) else None
     res = {
         "timestamp": idx[i_check],
         "date": idx[i_check].strftime("%Y-%m-%d %H:%M:%S"),
-        "consolidation": True,
+        "breakout": True,
+        "direction": "Up" if breakout_direction[i_check] == 1 else "Down",
+        "color": "#3ACF3F" if breakout_direction[i_check] == 1 else "#FF007F",
         "current_bar": (i_check == n-1),
         "window_size": int(N),
         "entry_idx": ei, "entry_ts": (idx[ei] if ei is not None else None),
         "left_idx": li, "left_ts": (idx[li] if li is not None else None),
-        "box_age": int(box_age_newest[i_check]),
-        "box_hi": float(box_hi_newest[i_check]),
-        "box_lo": float(box_lo_newest[i_check]),
-        "box_mid": float((box_hi_newest[i_check] + box_lo_newest[i_check]) / 2.0),
-        "mature": True,
-        "bars_inside": bars_inside[i_check],
+        "box_age": int(box_age_newest[i_check-1]),
+        "box_hi": float(box_hi_newest[i_check-1]),
+        "box_lo": float(box_lo_newest[i_check-1]),
+        "box_mid": float((box_hi_newest[i_check-1] + box_lo_newest[i_check-1]) / 2.0),
+        "bars_inside": bars_inside[i_check-1],
         "min_bars_inside_req": min_bars_inside,
-        "height_pct": height_pct[i_check],
-        "max_height_pct_req": max_height_pct,
-        "atr_ok": atr_ok[i_check],
-        "range_high": range_high[i_check],
-        "range_low": range_low[i_check],
-        "range_mid": (range_high[i_check] + range_low[i_check]) / 2.0 if not np.isnan(range_high[i_check]) else np.nan
+        "height_pct": height_pct[i_check-1],
+        "max_height_pct_req": pct_levels[current_level_newest[i_check-1]],
+        "atr_ok": atr_ok[i_check-1],
+        "range_high": range_high[i_check-1],
+        "range_low": range_low[i_check-1],
+        "range_mid": (range_high[i_check-1] + range_low[i_check-1]) / 2.0 if not np.isnan(range_high[i_check-1]) else np.nan
     }
     return True, res

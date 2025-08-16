@@ -1,15 +1,15 @@
-# custom_strategies/consolidation.py
+# custom_strategies/consolidation_breakout.py
 
 # min df number = 23
 
 import pandas as pd
 import numpy as np
 
-def detect_consolidation(
+def detect_consolidation_breakout(
     df: pd.DataFrame,
     check_bar: int = -1,
     use_log: bool = True,
-    require_box_breakout: bool = False
+    require_box_breakout: bool = True
 ) -> tuple[bool, dict]:
     """
     Detect if the specified bar is a breakout from consolidation box and channel.

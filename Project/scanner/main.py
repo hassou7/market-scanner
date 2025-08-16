@@ -7,7 +7,7 @@ from telegram.ext import Application
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation
+from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
 import os
@@ -36,6 +36,8 @@ class UnifiedScanner:
             'pin_down': 'Pin Down Detection',
             'confluence': 'Confluence Signal',
             'consolidation': 'Consolidation Pattern',
+            'consolidation_breakout': 'Consolidation Breakout Pattern',
+            'hbs_breakout': 'HBS Breakout', 
             'breakout_bar': 'Breakout Bar',
             'stop_bar': 'Stop Bar',
             'reversal_bar': 'Reversal Bar',
@@ -150,11 +152,48 @@ class UnifiedScanner:
                         f"Symbol: {symbol}\n"
                         f"Time: {date} - {bar_status}\n"
                         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Box High: ${result.get('box_hi', 0):,.8f}\n"
+                        f"Box Low: ${result.get('box_lo', 0):,.8f}\n"
+                        f"Box Age: {result.get('box_age', 0)} bars\n"
+                        f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f}%\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'consolidation_breakout':
+                    # Get volume info
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Unknown')
+                    direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Box High: ${result.get('box_hi', 0):,.8f}\n"
+                        f"Box Low: ${result.get('box_lo', 0):,.8f}\n"
+                        f"Box Age: {result.get('box_age', 0)} bars\n"
                         f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
                         f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
-                        f"ATR OK: {result.get('atr_ok', False)}\n"
-                        f"Range: [{result.get('range_low', 0):,.8f} … {result.get('range_high', 0):,.8f}]  "
-                        f"(mid {result.get('range_mid', 0):,.8f})\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'hbs_breakout':
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Unknown')
+                    direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
                         f"{'='*30}\n"
                     )
                 elif strategy == 'volume_surge':
@@ -235,7 +274,6 @@ class UnifiedScanner:
         except Exception as e:
             logging.error(f"Error sending {strategy} Telegram message: {str(e)}")
     
-
     async def scan_market(self, symbol):
         cache_key = f"{self.exchange_name}_{self.exchange_client.timeframe}_{symbol}"
         if cache_key not in kline_cache:
@@ -451,51 +489,177 @@ class UnifiedScanner:
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
 
-                        # Handle consolidation strategy
-
-            elif strategy == 'consolidation':                
-                # Last closed bar
+            # Handle consolidation strategy (detection without breakout)
+            elif strategy == 'consolidation':
+                from custom_strategies import detect_consolidation
+                
+                # Check last closed bar
                 if len(df) > 1:
                     detected, result = detect_consolidation(df, check_bar=-2)
                     if detected:
+                        # Calculate volume info for consolidation
+                        volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-2]
+                        volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
+                        
                         results[strategy] = {
                             'symbol': symbol,
                             'date': result.get('timestamp', df.index[-2]),
                             'close': df['close'].iloc[-2],
                             'current_bar': False,
-                            # payload from detector
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Box information from detector
+                            'box_hi': result.get('box_hi'),
+                            'box_lo': result.get('box_lo'),
+                            'box_age': result.get('box_age'),
                             'bars_inside': result.get('bars_inside'),
                             'min_bars_inside_req': result.get('min_bars_inside_req'),
                             'height_pct': result.get('height_pct'),
-                            'max_height_pct_req': result.get('max_height_pct_req'),
-                            'atr_ok': result.get('atr_ok'),
-                            'range_high': result.get('range_high'),
-                            'range_low': result.get('range_low'),
-                            'range_mid': result.get('range_mid'),
                         }
                         logging.info(f"{strategy} detected for {symbol} (last closed bar)")
 
-                # Current bar
+                # Check current bar
                 if len(df) > 2:
                     detected, result = detect_consolidation(df, check_bar=-1)
                     if detected:
+                        # Calculate volume info for consolidation
+                        volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-1]
+                        volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
+                        
                         results[strategy] = {
                             'symbol': symbol,
                             'date': result.get('timestamp', df.index[-1]),
                             'close': df['close'].iloc[-1],
                             'current_bar': True,
-                            # payload from detector
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Box information from detector
+                            'box_hi': result.get('box_hi'),
+                            'box_lo': result.get('box_lo'),
+                            'box_age': result.get('box_age'),
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+
+            # Handle consolidation breakout strategy (FIXED)
+            elif strategy == 'consolidation_breakout':                
+                from custom_strategies import detect_consolidation_breakout  # Correct import
+                
+                # Check last closed bar
+                if len(df) > 1:
+                    detected, result = detect_consolidation_breakout(df, check_bar=-2)  # Correct function call
+                    if detected:
+                        # Calculate volume info for breakout
+                        volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-2]
+                        volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-2]),
+                            'close': df['close'].iloc[-2],
+                            'current_bar': False,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Payload from detector
+                            'box_hi': result.get('box_hi'),
+                            'box_lo': result.get('box_lo'),
+                            'box_age': result.get('box_age'),
                             'bars_inside': result.get('bars_inside'),
                             'min_bars_inside_req': result.get('min_bars_inside_req'),
                             'height_pct': result.get('height_pct'),
                             'max_height_pct_req': result.get('max_height_pct_req'),
-                            'atr_ok': result.get('atr_ok'),
-                            'range_high': result.get('range_high'),
-                            'range_low': result.get('range_low'),
-                            'range_mid': result.get('range_mid'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+
+                # Check current bar
+                if len(df) > 2:
+                    detected, result = detect_consolidation_breakout(df, check_bar=-1)
+                    if detected:
+                        # Calculate volume info for breakout
+                        volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-1]
+                        volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-1]),
+                            'close': df['close'].iloc[-1],
+                            'current_bar': True,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Payload from detector
+                            'box_hi': result.get('box_hi'),
+                            'box_lo': result.get('box_lo'),
+                            'box_age': result.get('box_age'),
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
-                    
+
+            # Handle hbs_breakout strategy (combination of consolidation_breakout + confluence)
+            elif strategy == 'hbs_breakout':
+                from custom_strategies import detect_consolidation_breakout, detect_confluence
+                
+                cb_detected_prev, cb_result_prev = detect_consolidation_breakout(df, check_bar=-2)
+                cb_detected_curr, cb_result_curr = detect_consolidation_breakout(df, check_bar=-1)
+                cf_detected_prev, cf_result_prev = detect_confluence(df, check_bar=-2)
+                cf_detected_curr, cf_result_curr = detect_confluence(df, check_bar=-1)
+            
+                cb_fired = cb_detected_prev or cb_detected_curr
+                cf_fired = cf_detected_prev or cf_detected_curr
+            
+                if cb_fired and cf_fired:
+                    # Use the result from the latest cb fire
+                    if cb_detected_curr:
+                        # Calculate volume info
+                        volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-1]
+                        volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': cb_result_curr.get('direction'),
+                            'date': cb_result_curr.get('timestamp', df.index[-1]),
+                            'close': df['close'].iloc[-1],
+                            'current_bar': True,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            'bars_inside': cb_result_curr.get('bars_inside'),
+                            'min_bars_inside_req': cb_result_curr.get('min_bars_inside_req'),
+                            'height_pct': cb_result_curr.get('height_pct'),
+                            'max_height_pct_req': cb_result_curr.get('max_height_pct_req'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+                    elif cb_detected_prev:
+                        # Calculate volume info
+                        volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-2]
+                        volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': cb_result_prev.get('direction'),
+                            'date': cb_result_prev.get('timestamp', df.index[-2]),
+                            'close': df['close'].iloc[-2],
+                            'current_bar': False,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            'bars_inside': cb_result_prev.get('bars_inside'),
+                            'min_bars_inside_req': cb_result_prev.get('min_bars_inside_req'),
+                            'height_pct': cb_result_prev.get('height_pct'),
+                            'max_height_pct_req': cb_result_prev.get('max_height_pct_req'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+                
         return results
 
     async def scan_all_markets(self):
