@@ -81,14 +81,14 @@ futures_exchanges = [
 ]
 
 futures_scan_configs = [
-    {
-        "timeframe": "4h",
-        "strategies": [ "hbs_breakout"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
+    # {
+    #     "timeframe": "4h",
+    #     "strategies": [ "hbs_breakout"],
+    #     "exchanges": futures_exchanges,
+    #     "users": ["default"],
+    #     "send_telegram": True,
+    #     "min_volume_usd": None
+    # },
     {
         "timeframe": "1d",
         "strategies": ["reversal_bar", "volume_surge"],
@@ -132,14 +132,14 @@ futures_scan_configs = [
 ]
 
 spot_scan_configs = [
-    {
-        "timeframe": "4h",
-        "strategies": ["hbs_breakout"],
-        "exchanges": spot_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
+    # {
+    #     "timeframe": "4h",
+    #     "strategies": ["hbs_breakout"],
+    #     "exchanges": spot_exchanges,
+    #     "users": ["default"],
+    #     "send_telegram": True,
+    #     "min_volume_usd": None
+    # },
     {
         "timeframe": "1d",
         "strategies": ["consolidation_breakout", "test_bar", "loaded_bar", "volume_surge"],
@@ -151,7 +151,7 @@ spot_scan_configs = [
     {
         "timeframe": "2d",
         "strategies": ["confluence", "consolidation_breakout",  "hbs_breakout"],
-        "exchanges": spot_exchanges,
+        "exchanges": spot_exchanges + ["binance_futures"],
         "users": ["default", "user1", "user2"],
         "send_telegram": True,
         "min_volume_usd": None
@@ -159,7 +159,7 @@ spot_scan_configs = [
     {
         "timeframe": "3d",
         "strategies": ["confluence", "consolidation_breakout",  "hbs_breakout"],
-        "exchanges": spot_exchanges,
+        "exchanges": spot_exchanges + ["binance_futures"],
         "users": ["default", "user1", "user2"],
         "send_telegram": True,
         "min_volume_usd": None
@@ -167,7 +167,7 @@ spot_scan_configs = [
     {
         "timeframe": "4d",
         "strategies": ["confluence", "consolidation_breakout",  "hbs_breakout"],
-        "exchanges": spot_exchanges,
+        "exchanges": spot_exchanges + ["binance_futures"],
         "users": ["default", "user1", "user2"],
         "send_telegram": True,
         "min_volume_usd": None
@@ -175,7 +175,7 @@ spot_scan_configs = [
     {
         "timeframe": "1w",
         "strategies": ["confluence", "consolidation_breakout", "hbs_breakout", "volume_surge", "loaded_bar", "test_bar", "breakout_bar"],
-        "exchanges": spot_exchanges,
+        "exchanges": spot_exchanges + ["binance_futures"],
         "users": ["default", "user1", "user2"],
         "send_telegram": True,
         "min_volume_usd": None
