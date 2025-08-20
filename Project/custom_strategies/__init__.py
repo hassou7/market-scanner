@@ -10,6 +10,7 @@ This module provides various pattern detection strategies including:
 - Confluence signal detection
 - Consolidation pattern detection
 - Consolidation breakout detection
+- Channel breakout detection
 """
 
 # Import all strategy detection functions
@@ -19,6 +20,7 @@ from .pin_down import detect_pin_down
 from .confluence import detect_confluence
 from .consolidation import detect_consolidation
 from .consolidation_breakout import detect_consolidation_breakout
+from .channel_breakout import detect_channel_breakout
 
 # Export all functions for easy import
 __all__ = [
@@ -27,5 +29,6 @@ __all__ = [
     'detect_pin_down',
     'detect_confluence',
     'detect_consolidation',
-    'detect_consolidation_breakout'
+    'detect_consolidation_breakout',
+    'detect_channel_breakout'
 ]

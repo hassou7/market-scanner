@@ -6,7 +6,7 @@ TELEGRAM_TOKENS = {
     "start_trend": "7501317114:AAHqd8BYNqR81zWEHAuwQhKji1fOM9HxjdQ",
     "weakening_trend": "7837067804:AAE1H2XWMlwvogCdhQ7vJpufv6VpXaBFg8Q",
     "confluence": "8066329517:AAHVr6kufZWe8UqCKPfmsRhSPleNlt_7G-g",
-    "breakout": "8346095660:AAF0oUOfcMVsrbvTmklOnO-9KohlUH5JmqE",
+    "hbs_breakout": "8346095660:AAF0oUOfcMVsrbvTmklOnO-9KohlUH5JmqE",
 }
 
 # Telegram users configuration
@@ -19,7 +19,7 @@ TELEGRAM_USERS = {
 # Strategy to channel mapping
 STRATEGY_CHANNELS = {
     "breakout_bar": "start_trend",
-    "stop_bar": "start_trend",
+    "stop_bar": "start_trend", 
     "reversal_bar": "weakening_trend",
     "volume_surge": "volume_surge",
     "weak_uptrend": "weakening_trend",
@@ -28,19 +28,20 @@ STRATEGY_CHANNELS = {
     "start_bar": "start_trend",
     "loaded_bar": "volume_surge",
     "test_bar": "weakening_trend",
-    "consolidation": "start_trend",           # NEW: Consolidation pattern detection
-    "consolidation_breakout": "start_trend",  # NEW: Consolidation breakout detection
-    "hbs_breakout": "breakout"              # NEW: HBS (consolidation + confluence) breakout
+    "consolidation": "start_trend",
+    "consolidation_breakout": "start_trend",
+    "channel_breakout": "start_trend",
+    "hbs_breakout": "hbs_breakout"
 }
 
 # Volume thresholds for different timeframes
 VOLUME_THRESHOLDS = {
-    "1w": 300000,  # Weekly volume threshold in USD
-    "4d": 200000,  # 4-day volume threshold in USD
-    "3d": 150000,  # 3-day volume threshold in USD
-    "2d": 100000,  # 2-day volume threshold in USD
-    "1d": 50000,   # Daily volume threshold in USD
-    "4h": 20000    # 4-hour volume threshold in USD
+    "1w": 500000,  # Weekly volume threshold in USD
+    "4d": 300000,  # 4-day volume threshold in USD
+    "3d": 200000,  # 3-day volume threshold in USD
+    "2d": 150000,  # 2-day volume threshold in USD
+    "1d": 75000,   # Daily volume threshold in USD
+    "4h": 40000    # 4-hour volume threshold in USD
 }
 
 def get_telegram_config(strategies, users):

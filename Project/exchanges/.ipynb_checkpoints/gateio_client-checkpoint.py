@@ -44,12 +44,32 @@ class GateioClient(BaseExchangeClient):
         }[self.timeframe]
 
     async def get_all_spot_symbols(self):
-        """Fetch all USDT spot trading pairs from Gate.io"""
+        """Fetch all USDT spot trading pairs from Gate.io, excluding leveraged tokens"""
         async with self.session.get(f"{self.base_url}/spot/currency_pairs") as response:
             data = await response.json()
-            symbols = [pair['id'] for pair in data 
-                      if pair.get('quote') == self.quote_currency and 
-                      pair.get('trade_status') == 'tradable']
+            
+            # Define patterns to exclude Gate.io leveraged tokens
+            excluded_patterns = [
+                '3S',    # 3x Short leveraged tokens
+                '3L',    # 3x Long leveraged tokens  
+                '5S',    # 5x Short leveraged tokens
+                '5L'     # 5x Long leveraged tokens
+            ]
+            
+            symbols = []
+            for pair in data:
+                if (pair.get('quote') == self.quote_currency and 
+                    pair.get('trade_status') == 'tradable'):
+                    
+                    symbol = pair['id']
+                    base_currency = symbol.replace('_USDT', '')
+                    
+                    # Check if symbol contains any excluded leveraged token patterns
+                    should_exclude = any(pattern in base_currency for pattern in excluded_patterns)
+                    
+                    if not should_exclude:
+                        symbols.append(symbol)
+            
             return sorted(symbols)
 
     async def fetch_klines(self, symbol: str):

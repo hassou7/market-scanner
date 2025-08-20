@@ -20,7 +20,7 @@ A comprehensive market scanner for cryptocurrency exchanges that combines VSA (V
 
 ## Project Overview
 
-This project is a cryptocurrency market scanner designed to detect profitable trading opportunities across multiple exchanges and timeframes. It employs both traditional Volume Spread Analysis (VSA) techniques and custom pattern detection algorithms like volume surge, weak uptrend, pin down, confluence pattern detection, consolidation breakout detection, and hybrid breakout strategies.
+This project is a cryptocurrency market scanner designed to detect profitable trading opportunities across multiple exchanges and timeframes. It employs both traditional Volume Spread Analysis (VSA) techniques and custom pattern detection algorithms like volume surge, weak uptrend, pin down, confluence pattern detection, consolidation breakout detection, channel breakout detection, and hybrid breakout strategies.
 
 The scanner supports multiple exchanges including Binance (spot and futures), Gate.io, KuCoin, MEXC, and Bybit. It can analyze various timeframes (1w, 3d, 2d, 1d, 4h) and send notifications via Telegram to multiple users. The system now features **parallel processing** for enhanced performance across multiple exchanges and timeframes.
 
@@ -42,6 +42,7 @@ The scanner supports multiple exchanges including Binance (spot and futures), Ga
   - Pin Down pattern for bearish continuation
   - **Confluence Signal** - multi-factor confirmation system
   - **Consolidation Breakout** - breakout from consolidation patterns
+  - **Channel Breakout** - breakout from diagonal channel patterns (NEW)
   - **HBS Breakout** - hybrid consolidation + confluence strategy
 - **Telegram Integration**: Send alerts to multiple users and channels
 - **Modular Architecture**: Easy to add new exchanges and strategies
@@ -73,7 +74,8 @@ project/
 │   ├── pin_down.py             # Pin down pattern detection
 │   ├── confluence.py           # Confluence signal detection
 │   ├── consolidation.py        # Ongoing Consolidation box detection
-│   └── consolidation_breakout.py  # NEW: Consolidation breakout detection
+│   ├── consolidation_breakout.py  # Consolidation breakout detection
+│   └── channel_breakout.py     # NEW: Channel breakout detection
 ├── exchanges/                  # Exchange API clients
 │   ├── __init__.py
 │   ├── base_client.py          # Base exchange client class
@@ -149,6 +151,7 @@ STRATEGY_CHANNELS = {
     "test_bar": "weakening_trend",
     "consolidation": "start_trend",
     "consolidation_breakout": "start_trend",
+    "channel_breakout": "start_trend",  # NEW
     "hbs_breakout": "confluence"
 }
 ```
@@ -183,7 +186,7 @@ from run_parallel_scanner import run_parallel_exchanges
 # Run scan across all exchanges in parallel
 result = await run_parallel_exchanges(
     timeframe="1d",
-    strategies=["breakout_bar", "confluence", "consolidation_breakout"],
+    strategies=["breakout_bar", "confluence", "consolidation_breakout", "channel_breakout"],  # NEW: channel_breakout
     exchanges=["binance_spot", "bybit_spot", "kucoin_spot"],  # Optional: specify exchanges
     users=["default"],
     send_telegram=True,
@@ -199,7 +202,7 @@ from run_parallel_scanner import run_parallel_multi_timeframes_all_exchanges
 # Run scan across multiple timeframes and exchanges
 result = await run_parallel_multi_timeframes_all_exchanges(
     timeframes=["3d", "4d", "1w"],  # NEW: Extended timeframe support
-    strategies=["confluence", "consolidation_breakout", "hbs_breakout"],
+    strategies=["confluence", "consolidation_breakout", "channel_breakout", "hbs_breakout"],  # NEW: channel_breakout
     exchanges=None,  # Use all available exchanges
     users=["default"],
     send_telegram=True,
@@ -211,7 +214,7 @@ result = await run_parallel_multi_timeframes_all_exchanges(
 
 ```bash
 # Run parallel scan from command line
-python run_parallel_scanner.py 1d "consolidation_breakout,confluence" "binance_spot,bybit_spot" "default" true
+python run_parallel_scanner.py 1d "consolidation_breakout,channel_breakout,confluence" "binance_spot,bybit_spot" "default" true
 ```
 
 ### Traditional Jupyter Notebook Usage
@@ -241,7 +244,7 @@ await run_scan(
 await run_custom_scan(
     exchange='binance_futures',
     timeframe='3d',  # NEW: 3-day timeframe support
-    strategies=['volume_surge', 'consolidation_breakout', 'hbs_breakout'],  # NEW: consolidation strategies
+    strategies=['volume_surge', 'consolidation_breakout', 'channel_breakout', 'hbs_breakout'],  # NEW: channel_breakout
     send_telegram=True
 )
 ```
@@ -366,7 +369,7 @@ Consolidation patterns are triggered on the rising edge of conditions, with boxe
 - Provides detailed box metrics (age, range bounds, mid) and condition breakdowns in alerts
 - Suitable for spotting potential breakouts or reversals in ranging markets
 
-### Consolidation Breakout (NEW)
+### Consolidation Breakout
 
 An advanced breakout detection system that identifies when price breaks out of established consolidation patterns with channel confirmation. This strategy combines consolidation box detection with trend channel analysis to provide high-probability breakout signals.
 
@@ -390,11 +393,19 @@ An advanced breakout detection system that identifies when price breaks out of e
 
 **Telegram Notifications Include:**
 - Breakout direction with color-coded emojis (🟢 Up, 🔴 Down)
-- Box metrics (age, high/low bounds, compression ratio)
+- Channel metrics (age, slope, direction, offset)
 - Volume analysis (ratio and USD volume)
-- Channel breakout confirmation details
+- ATR filter status and volatility confirmation
+- Channel tightness percentage and bars inside count
+- Window size and technical parameters
 
-### HBS Breakout (NEW)
+**Usage Recommendations:**
+- Ideal for trending market conditions with diagonal price action
+- Excellent for swing trading entries on channel breakouts
+- Best used on higher timeframes (4h, 1d, 1w) for reliable channel formation
+- Suitable for automated trading systems requiring trend-following setups
+
+### HBS Breakout
 
 A sophisticated hybrid strategy that combines **Consolidation Breakout** and **Confluence Signal** detection for ultra-high probability trade setups. HBS stands for "Hybrid Breakout Strategy" and represents the confluence of multiple confirming factors.
 
@@ -460,7 +471,7 @@ The scanner now features advanced parallel processing capabilities:
 # Fast scan of single exchange
 result = await run_parallel_exchanges(
     timeframe="1d",
-    strategies=["consolidation_breakout"],
+    strategies=["consolidation_breakout", "channel_breakout"],  # NEW: channel_breakout
     exchanges=["binance_spot"],
     users=["default"],
     send_telegram=True
@@ -472,7 +483,7 @@ result = await run_parallel_exchanges(
 # Complete market scan across all dimensions
 result = await run_parallel_multi_timeframes_all_exchanges(
     timeframes=["4d", "3d", "2d", "1d"],  # NEW timeframes included
-    strategies=["confluence", "consolidation_breakout", "hbs_breakout"],
+    strategies=["confluence", "consolidation_breakout", "channel_breakout", "hbs_breakout"],  # NEW: channel_breakout
     exchanges=None,  # All exchanges
     users=["default", "trader1", "analyst2"],
     send_telegram=True
@@ -488,7 +499,7 @@ The system supports sending notifications to multiple users:
    ```python
    await run_parallel_exchanges(
        timeframe='2d',  # NEW: 2-day timeframe
-       strategies=['consolidation_breakout', 'hbs_breakout'], 
+       strategies=['consolidation_breakout', 'channel_breakout', 'hbs_breakout'],  # NEW: channel_breakout
        exchanges=["binance_spot", "bybit_spot"],
        users=["default", "user1", "trader2"],  # Multiple users
        send_telegram=True
@@ -499,7 +510,7 @@ The system supports sending notifications to multiple users:
    ```python
    await run_scan(
        timeframe='3d',  # NEW: 3-day timeframe 
-       strategy='consolidation_breakout',  # NEW: consolidation breakout strategy
+       strategy='channel_breakout',  # NEW: channel breakout strategy
        exchange="binance_spot", 
        send_telegram=True,
        user_id="user1"
@@ -566,7 +577,7 @@ class NewExchangeClient(BaseExchangeClient):
 
 ### Adding a New Custom Strategy
 
-1. Create a new strategy file in `custom_strategies/` (like `consolidation_breakout.py`)
+1. Create a new strategy file in `custom_strategies/` (like `channel_breakout.py`)
 2. Define a detection function that returns a boolean and a result dictionary
 3. Update `custom_strategies/__init__.py` to expose your new function
 4. Update `scanner/main.py` to support the new strategy in the scan_market method
@@ -616,16 +627,16 @@ def detect_new_strategy(df, check_bar=-1):
    - Use parallel scanning to distribute load
 
 3. **Telegram Bot Issues**:
-   - Verify token correctness for all strategies including consolidation_breakout and hbs_breakout
+   - Verify token correctness for all strategies including channel_breakout
    - Ensure the bot has been started by all users
    - Check permission to post in groups
    - Verify new strategies are mapped correctly in config
 
 4. **No Results Found**:
    - Check volume thresholds for new timeframes (3d, 4d) in `config.py`
-   - Verify the strategy parameters for consolidation_breakout and hbs_breakout
+   - Verify the strategy parameters for channel_breakout
    - Ensure exchange API supports new timeframes
-   - Check if consolidation detection logic has sufficient data (23+ bars)
+   - Check if channel detection logic has sufficient data (23+ bars)
 
 5. **Parallel Scanning Issues**:
    - Verify all required exchanges are available
@@ -638,11 +649,18 @@ def detect_new_strategy(df, check_bar=-1):
    - Restart scanner if cache becomes corrupted
    - Check memory usage for large cache sizes
 
-7. **Consolidation Strategy Issues**:
-   - Ensure sufficient historical data (minimum 23 bars for consolidation_breakout)
-   - Check ATR filter settings for low volatility requirements
-   - Verify box formation criteria (height percentage, bars inside)
-   - Monitor channel breakout confirmation logic
+7. **Channel Breakout Strategy Issues**:
+   - Ensure sufficient historical data (minimum 23 bars for channel_breakout)
+   - Check ATR filter settings for low volatility requirements (1.5x multiplier)
+   - Verify channel formation criteria (height percentage, bars inside)
+   - Monitor diagonal channel fitting with Theil-Sen regression
+   - Check log vs linear scale usage for channel fitting
+
+8. **Channel vs Consolidation Strategy Differences**:
+   - **Channel Breakout**: Detects diagonal trending channels using regression fitting
+   - **Consolidation Breakout**: Detects horizontal trading ranges
+   - Use Channel Breakout for trending markets with slope
+   - Use Consolidation Breakout for sideways ranging markets
 
 ### Logging
 
@@ -675,7 +693,7 @@ start_time = time.time()
 
 result = await run_parallel_multi_timeframes_all_exchanges(
     timeframes=["4d", "3d", "1d"],
-    strategies=["consolidation_breakout", "hbs_breakout"],
+    strategies=["consolidation_breakout", "channel_breakout", "hbs_breakout"],  # NEW: channel_breakout
     exchanges=None
 )
 
@@ -687,7 +705,18 @@ print(f"Scan completed in {duration:.2f} seconds")
 
 ## Recent Updates
 
-### Version 2.1 Features (NEW)
+### Version 2.2 Features (NEW)
+
+- **Channel Breakout Strategy**: Advanced diagonal channel breakout detection with Theil-Sen regression
+- **Enhanced Channel Analysis**: Robust statistical fitting for trending channel patterns
+- **Improved Breakout Detection**: Diagonal channel breakouts vs horizontal consolidation breakouts
+- **ATR Volatility Filtering**: Enhanced volatility confirmation for channel formation
+- **Multi-Level Tightness Detection**: Progressive tightening thresholds (35%, 25%, 15%)
+- **Advanced Telegram Notifications**: Channel-specific metrics including slope, direction, and age
+- **Log-Scale Channel Fitting**: Optional logarithmic scale for improved trend fitting
+- **Channel Tracking System**: Active channel monitoring with offset and age tracking
+
+### Previous Version 2.1 Features
 
 - **Consolidation Breakout Strategy**: Advanced breakout detection with channel confirmation
 - **HBS Breakout Strategy**: Hybrid strategy combining consolidation and confluence signals
@@ -697,4 +726,38 @@ print(f"Scan completed in {duration:.2f} seconds")
 - **Multi-Timeframe Scanning**: Efficient scanning across multiple timeframes
 - **Enhanced Caching**: Smart cache management for optimal performance
 - **Improved Error Handling**: Robust error recovery in parallel operations
-- **Progress Tracking**: Real-time progress updates for all operations
+- **Progress Tracking**: Real-time progress updates for all operationsis (🟢 Up, 🔴 Down)
+- Box metrics (age, high/low bounds, compression ratio)
+- Volume analysis (ratio and USD volume)
+- Channel breakout confirmation details
+
+### Channel Breakout (NEW)
+
+An advanced diagonal channel breakout detection system that identifies when price breaks out of established diagonal consolidation channels. This strategy extends beyond horizontal consolidation patterns to detect trending channel formations and their subsequent breakouts.
+
+**Detection Logic:**
+1. **Diagonal Channel Formation**: Uses Theil-Sen regression to fit diagonal trend channels through closing prices over a rolling window
+2. **Channel Validation**: Ensures channels meet specific criteria for tightness and volatility requirements
+3. **Breakout Detection**: Identifies when price exceeds the projected channel boundaries with volume confirmation
+
+**Key Components:**
+- **Channel Fitting**: Uses robust Theil-Sen regression on log or linear price data for diagonal trend fitting
+- **Dynamic Height Calculation**: Measures channel width as percentage of median price for compression analysis
+- **ATR Filter**: Ensures low volatility environment suitable for channel formation
+- **Breakout Confirmation**: Price closes above/below projected channel bounds with direction identification
+
+**Advanced Features:**
+- **Multi-Level Tightness**: Progressive tightening detection with multiple percentage thresholds (35%, 25%, 15%)
+- **Channel Tracking**: Active channel monitoring with age and offset tracking
+- **Slope Analysis**: Channel direction determination (upward/downward trending)
+- **Volume Validation**: Enhanced volume analysis during breakout phases
+
+**Signal Requirements:**
+- Minimum data requirement: 23 bars for proper statistical analysis
+- Rolling window size: 7 bars for channel fitting
+- Minimum bars inside channel: 4 bars
+- ATR filter with 1.5x multiplier for volatility confirmation
+- Progressive height percentage thresholds for tight channel detection
+
+**Telegram Notifications Include:**
+- Breakout direction with color-coded emoj

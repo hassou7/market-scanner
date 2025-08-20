@@ -7,7 +7,7 @@ from telegram.ext import Application
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout
+from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
 import os
@@ -37,6 +37,7 @@ class UnifiedScanner:
             'confluence': 'Confluence Signal',
             'consolidation': 'Consolidation Pattern',
             'consolidation_breakout': 'Consolidation Breakout Pattern',
+            'channel_breakout': 'Channel Breakout Pattern',  # NEW
             'hbs_breakout': 'HBS Breakout', 
             'breakout_bar': 'Breakout Bar',
             'stop_bar': 'Stop Bar',
@@ -109,7 +110,12 @@ class UnifiedScanner:
                 tv_link = f"https://www.tradingview.com/chart/?symbol={tv_exchange}:{tv_symbol}{suffix}&interval={tv_timeframe}"
                 date = result.get('date') or result.get('timestamp')
                 bar_status = "CURRENT BAR" if result.get('current_bar') else "Last Closed Bar"
-                volume_period = "Weekly" if timeframe == "1w" else "2-Day" if timeframe == "2d" else "Daily" if timeframe == "1d" else "4-Hour"
+                volume_period = "Weekly" if timeframe == "1w" else \
+                                "4-Day" if timeframe == "4d" else \
+                                "3-Day" if timeframe == "3d" else \
+                                "2-Day" if timeframe == "2d" else \
+                                "Daily" if timeframe == "1d" else \
+                                "4-Hour"
     
                 # Create message specific to each strategy type
                 if strategy in self.vsa_detectors:
@@ -173,9 +179,28 @@ class UnifiedScanner:
                         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
                         f"Volume Ratio: {volume_ratio:,.2f}x\n"
                         f"{volume_period} Volume: ${volume_usd:,.2f}\n"
-                        f"Box High: ${result.get('box_hi', 0):,.8f}\n"
-                        f"Box Low: ${result.get('box_lo', 0):,.8f}\n"
                         f"Box Age: {result.get('box_age', 0)} bars\n"
+                        f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'channel_breakout':  # NEW: Channel Breakout message format
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Unknown')
+                    direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
+                    channel_direction = result.get('channel_direction', 'Unknown')
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Channel Direction: {channel_direction}\n"
+                        f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Channel Age: {result.get('channel_age', 0)} bars\n"
+                        f"Channel Slope: {result.get('channel_slope', 0):,.4f}\n"
                         f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
                         f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
                         f"{'='*30}\n"
@@ -192,7 +217,6 @@ class UnifiedScanner:
                         f"Time: {date} - {bar_status}\n"
                         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
                         f"{volume_period} Volume: ${volume_usd:,.2f}\n"
-                        f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
                         f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
                         f"{'='*30}\n"
                     )
@@ -402,147 +426,6 @@ class UnifiedScanner:
                             'price_extreme': result['price_extreme'],
                             'current_bar': False  # Last closed bar
                         }
-                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
-                
-                # Check current bar
-                if len(df) > 2:  # Need at least 3 bars for proper calculation
-                    detected, result = detect_volume_surge(df, check_bar=-1)  # Check current bar
-                    
-                    if detected:
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'date': result['timestamp'],
-                            'close': result['close_price'],
-                            'volume': result['volume'],
-                            'volume_usd': result['volume_usd'],
-                            'volume_ratio': result['volume_ratio'],
-                            'score': result['score'],
-                            'price_extreme': result['price_extreme'],
-                            'current_bar': True  # Current bar
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (current bar)")
-            
-            # Handle weak_uptrend strategy
-            elif strategy == 'weak_uptrend':
-                from custom_strategies import detect_weak_uptrend
-                detected, result = detect_weak_uptrend(df)
-                
-                if detected:
-                    result['symbol'] = symbol
-                    results[strategy] = result
-                    logging.info(f"{strategy} detected for {symbol}")
-            
-            # Handle pin_down strategy
-            elif strategy == 'pin_down':
-                from custom_strategies import detect_pin_down
-                detected, result = detect_pin_down(df)
-                
-                if detected:
-                    result['symbol'] = symbol
-                    result['volume_usd'] = df['volume'].iloc[-2] * df['close'].iloc[-2] if len(df) > 1 else 0
-                    results[strategy] = result
-                    logging.info(f"{strategy} detected for {symbol}")
-
-            # Handle confluence strategy
-            elif strategy == 'confluence':
-                from custom_strategies import detect_confluence
-                
-                # Check last closed bar
-                if len(df) > 1:
-                    detected, result = detect_confluence(df, check_bar=-2)  # Last closed bar
-                    
-                    if detected:
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'date': result['timestamp'],
-                            'close': result['close_price'],
-                            'volume': result['volume'],
-                            'volume_usd': result['volume_usd'],
-                            'volume_ratio': result['volume_ratio'],
-                            'close_off_low': result['close_off_low'],
-                            'momentum_score': result['momentum_score'],
-                            'high_volume': result['high_volume'],
-                            'spread_breakout': result['spread_breakout'],
-                            'momentum_breakout': result['momentum_breakout'],
-                            'current_bar': False  # Last closed bar
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
-                
-                # Check current bar
-                if len(df) > 2:  # Need sufficient data for proper calculation
-                    detected, result = detect_confluence(df, check_bar=-1)  # Current bar
-                    
-                    if detected:
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'date': result['timestamp'],
-                            'close': result['close_price'],
-                            'volume': result['volume'],
-                            'volume_usd': result['volume_usd'],
-                            'volume_ratio': result['volume_ratio'],
-                            'close_off_low': result['close_off_low'],
-                            'momentum_score': result['momentum_score'],
-                            'high_volume': result['high_volume'],
-                            'spread_breakout': result['spread_breakout'],
-                            'momentum_breakout': result['momentum_breakout'],
-                            'current_bar': True  # Current bar
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (current bar)")
-
-            # Handle consolidation strategy (detection without breakout)
-            elif strategy == 'consolidation':
-                from custom_strategies import detect_consolidation
-                
-                # Check last closed bar
-                if len(df) > 1:
-                    detected, result = detect_consolidation(df, check_bar=-2)
-                    if detected:
-                        # Calculate volume info for consolidation
-                        volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
-                        volume_mean = df['volume'].rolling(7).mean().iloc[-2]
-                        volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
-                        
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'date': result.get('timestamp', df.index[-2]),
-                            'close': df['close'].iloc[-2],
-                            'current_bar': False,
-                            'volume_usd': volume_usd,
-                            'volume_ratio': volume_ratio,
-                            # Box information from detector
-                            'box_hi': result.get('box_hi'),
-                            'box_lo': result.get('box_lo'),
-                            'box_age': result.get('box_age'),
-                            'bars_inside': result.get('bars_inside'),
-                            'min_bars_inside_req': result.get('min_bars_inside_req'),
-                            'height_pct': result.get('height_pct'),
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
-
-                # Check current bar
-                if len(df) > 2:
-                    detected, result = detect_consolidation(df, check_bar=-1)
-                    if detected:
-                        # Calculate volume info for consolidation
-                        volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
-                        volume_mean = df['volume'].rolling(7).mean().iloc[-1]
-                        volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
-                        
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'date': result.get('timestamp', df.index[-1]),
-                            'close': df['close'].iloc[-1],
-                            'current_bar': True,
-                            'volume_usd': volume_usd,
-                            'volume_ratio': volume_ratio,
-                            # Box information from detector
-                            'box_hi': result.get('box_hi'),
-                            'box_lo': result.get('box_lo'),
-                            'box_age': result.get('box_age'),
-                            'bars_inside': result.get('bars_inside'),
-                            'min_bars_inside_req': result.get('min_bars_inside_req'),
-                            'height_pct': result.get('height_pct'),
-                        }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
 
             # Handle consolidation breakout strategy (FIXED)
@@ -605,60 +488,140 @@ class UnifiedScanner:
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
 
-            # Handle hbs_breakout strategy (combination of consolidation_breakout + confluence)
-            elif strategy == 'hbs_breakout':
-                from custom_strategies import detect_consolidation_breakout, detect_confluence
+            # Handle channel_breakout strategy (NEW)
+            elif strategy == 'channel_breakout':
+                from custom_strategies import detect_channel_breakout
                 
-                cb_detected_prev, cb_result_prev = detect_consolidation_breakout(df, check_bar=-2)
-                cb_detected_curr, cb_result_curr = detect_consolidation_breakout(df, check_bar=-1)
-                cf_detected_prev, cf_result_prev = detect_confluence(df, check_bar=-2)
-                cf_detected_curr, cf_result_curr = detect_confluence(df, check_bar=-1)
-            
-                cb_fired = cb_detected_prev or cb_detected_curr
-                cf_fired = cf_detected_prev or cf_detected_curr
-            
-                if cb_fired and cf_fired:
-                    # Use the result from the latest cb fire
-                    if cb_detected_curr:
-                        # Calculate volume info
-                        volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
-                        volume_mean = df['volume'].rolling(7).mean().iloc[-1]
-                        volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
-                        
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'direction': cb_result_curr.get('direction'),
-                            'date': cb_result_curr.get('timestamp', df.index[-1]),
-                            'close': df['close'].iloc[-1],
-                            'current_bar': True,
-                            'volume_usd': volume_usd,
-                            'volume_ratio': volume_ratio,
-                            'bars_inside': cb_result_curr.get('bars_inside'),
-                            'min_bars_inside_req': cb_result_curr.get('min_bars_inside_req'),
-                            'height_pct': cb_result_curr.get('height_pct'),
-                            'max_height_pct_req': cb_result_curr.get('max_height_pct_req'),
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (current bar)")
-                    elif cb_detected_prev:
-                        # Calculate volume info
+                # Check last closed bar
+                if len(df) > 23:  # Minimum required data
+                    detected, result = detect_channel_breakout(df, check_bar=-2)
+                    if detected:
+                        # Calculate volume info for breakout
                         volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
                         volume_mean = df['volume'].rolling(7).mean().iloc[-2]
                         volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
                         
                         results[strategy] = {
                             'symbol': symbol,
-                            'direction': cb_result_prev.get('direction'),
-                            'date': cb_result_prev.get('timestamp', df.index[-2]),
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-2]),
                             'close': df['close'].iloc[-2],
                             'current_bar': False,
                             'volume_usd': volume_usd,
                             'volume_ratio': volume_ratio,
-                            'bars_inside': cb_result_prev.get('bars_inside'),
-                            'min_bars_inside_req': cb_result_prev.get('min_bars_inside_req'),
-                            'height_pct': cb_result_prev.get('height_pct'),
-                            'max_height_pct_req': cb_result_prev.get('max_height_pct_req'),
+                            # Channel-specific information
+                            'channel_age': result.get('channel_age'),
+                            'channel_direction': result.get('channel_direction'),
+                            'channel_slope': result.get('channel_slope'),
+                            'channel_offset': result.get('channel_offset'),
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
+                            'atr_ok': result.get('atr_ok'),
+                            'window_size': result.get('window_size'),
                         }
                         logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+
+                # Check current bar
+                if len(df) > 24:  # Need one more bar for current analysis
+                    detected, result = detect_channel_breakout(df, check_bar=-1)
+                    if detected:
+                        # Calculate volume info for breakout
+                        volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-1]
+                        volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-1]),
+                            'close': df['close'].iloc[-1],
+                            'current_bar': True,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Channel-specific information
+                            'channel_age': result.get('channel_age'),
+                            'channel_direction': result.get('channel_direction'),
+                            'channel_slope': result.get('channel_slope'),
+                            'channel_offset': result.get('channel_offset'),
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
+                            'atr_ok': result.get('atr_ok'),
+                            'window_size': result.get('window_size'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+
+            # Handle hbs_breakout strategy (combination of consolidation_breakout + confluence)
+            elif strategy == 'hbs_breakout':
+                from custom_strategies import detect_consolidation_breakout, detect_confluence, detect_channel_breakout
+                
+                cb_detected_prev, cb_result_prev = detect_consolidation_breakout(df, check_bar=-2)
+                cb_detected_curr, cb_result_curr = detect_consolidation_breakout(df, check_bar=-1)
+                cf_detected_prev, cf_result_prev = detect_confluence(df, check_bar=-2)
+                cf_detected_curr, cf_result_curr = detect_confluence(df, check_bar=-1)
+                chb_detected_prev, chb_result_prev = detect_channel_breakout(df, check_bar=-2)
+                chb_detected_curr, chb_result_curr = detect_channel_breakout(df, check_bar=-1)
+                
+                if cf_detected_curr and (cb_detected_curr or chb_detected_curr):
+                    if cb_detected_curr and chb_detected_curr:
+                        # Prefer channel_breakout if both occur
+                        breakout_result = chb_result_curr
+                        breakout_type = "channel_breakout"
+                    elif cb_detected_curr:
+                        breakout_result = cb_result_curr
+                    else:
+                        breakout_result = chb_result_curr
+                        breakout_type = "consolidation_breakout"
+                    
+                    volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
+                    volume_mean = df['volume'].rolling(7).mean().iloc[-1]
+                    volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
+                    
+                    results[strategy] = {
+                        'symbol': symbol,
+                        'direction': breakout_result.get('direction'),
+                        'date': breakout_result.get('timestamp', df.index[-1]),
+                        'close': df['close'].iloc[-1],
+                        'current_bar': True,
+                        'volume_usd': volume_usd,
+                        'volume_ratio': volume_ratio,
+                        'bars_inside': breakout_result.get('bars_inside'),
+                        'min_bars_inside_req': breakout_result.get('min_bars_inside_req'),
+                        'height_pct': breakout_result.get('height_pct'),
+                        'max_height_pct_req': breakout_result.get('max_height_pct_req'),
+                    }
+                    logging.info(f"{strategy} detected for {symbol} (current bar)")
+                
+                elif cf_detected_prev and (cb_detected_prev or chb_detected_prev):
+                    if cb_detected_prev and chb_detected_prev:
+                        # Prefer channel_breakout if both occur
+                        breakout_result = chb_result_prev
+                    elif cb_detected_prev:
+                        breakout_result = cb_result_prev
+                    else:
+                        breakout_result = chb_result_prev
+                    
+                    volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
+                    volume_mean = df['volume'].rolling(7).mean().iloc[-2]
+                    volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
+                    
+                    results[strategy] = {
+                        'symbol': symbol,
+                        'direction': breakout_result.get('direction'),
+                        'date': breakout_result.get('timestamp', df.index[-2]),
+                        'close': df['close'].iloc[-2],
+                        'current_bar': False,
+                        'volume_usd': volume_usd,
+                        'volume_ratio': volume_ratio,
+                        'bars_inside': breakout_result.get('bars_inside'),
+                        'min_bars_inside_req': breakout_result.get('min_bars_inside_req'),
+                        'height_pct': breakout_result.get('height_pct'),
+                        'max_height_pct_req': breakout_result.get('max_height_pct_req'),
+                    }
+                    logging.info(f"{strategy} detected for {symbol} (last closed bar)")            
                 
         return results
 
