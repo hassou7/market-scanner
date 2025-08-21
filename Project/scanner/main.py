@@ -206,18 +206,52 @@ class UnifiedScanner:
                         f"{'='*30}\n"
                     )
                 elif strategy == 'hbs_breakout':
+                    # Extract needed values
                     volume_usd = result.get('volume_usd', 0)
-                    volume_ratio = result.get('volume_ratio', 0)
                     direction = result.get('direction', 'Unknown')
-                    direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
                     
+                    # Determine direction emoji and text
+                    if direction == "Up":
+                        direction_display = "🟢⬆️ UP"
+                    elif direction == "Down":
+                        direction_display = "🔴⬇️ DOWN"
+                    else:
+                        direction_display = "⚪ NEUTRAL"
+                    
+                    # Determine context (what type of breakout)
+                    context = result.get('breakout_type', '')  # You'll need to pass this from scan_market
+                    if context == 'both':
+                        context_display = "📈 Both"
+                    elif context == 'channel_breakout':
+                        context_display = "␥ Channel BO"
+                    else:
+                        context_display = "☲ Consolidation BO"
+                    
+                    # Determine extreme conditions
+                    has_extreme_volume = result.get('extreme_volume', False)
+                    has_extreme_spread = result.get('extreme_spread', False)
+                    
+                    if has_extreme_volume and has_extreme_spread:
+                        extreme_display = "🟠 Volume and Spread"
+                    elif has_extreme_volume:
+                        extreme_display = "🟠 Volume"
+                    elif has_extreme_spread:
+                        extreme_display = "🟠 Spread"
+                    else:
+                        extreme_display = "None"
+                    
+                    # Format price and volume
+                    price_formatted = f"${result.get('close', 0):,.2f}"
+                    volume_formatted = f"${volume_usd:,.1f}M" if volume_usd >= 1000000 else f"${volume_usd:,.0f}"
+                    
+                    # Create compact message with clickable symbol
                     signal_message = (
-                        f"Symbol: {symbol}\n"
-                        f"Direction: {direction_emoji} {direction} Breakout\n"
-                        f"Time: {date} - {bar_status}\n"
-                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
-                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
-                        f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"<a href='{tv_link}'>{symbol}</a> | {price_formatted} | Vol: {volume_formatted}\n"
+                        f"Time: {date} | {bar_status}\n"
+                        f"----\n"
+                        f"Context: {context_display}\n"
+                        f"Extreme: {extreme_display}\n"
+                        f"Direction: {direction_display}\n"
                         f"{'='*30}\n"
                     )
                 elif strategy == 'volume_surge':
@@ -427,8 +461,79 @@ class UnifiedScanner:
                             'current_bar': False  # Last closed bar
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
+                        
+            # Handle weak_uptrend strategy
+            elif strategy == 'weak_uptrend':
+                from custom_strategies import detect_weak_uptrend
+                detected, result = detect_weak_uptrend(df)
+                
+                if detected:
+                    result['symbol'] = symbol
+                    results[strategy] = result
+                    logging.info(f"{strategy} detected for {symbol}")
+            
+            # Handle pin_down strategy
+            elif strategy == 'pin_down':
+                from custom_strategies import detect_pin_down
+                detected, result = detect_pin_down(df)
+                
+                if detected:
+                    result['symbol'] = symbol
+                    result['volume_usd'] = df['volume'].iloc[-2] * df['close'].iloc[-2] if len(df) > 1 else 0
+                    results[strategy] = result
+                    logging.info(f"{strategy} detected for {symbol}")
 
-            # Handle consolidation breakout strategy (FIXED)
+            # Handle confluence strategy
+            elif strategy == 'confluence':
+                from custom_strategies import detect_confluence
+                
+                # Check last closed bar
+                if len(df) > 1:
+                    detected, result = detect_confluence(df, check_bar=-2)  # Last closed bar
+                    
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result['timestamp'],
+                            'close': result['close_price'],
+                            'volume': result['volume'],
+                            'volume_usd': result['volume_usd'],
+                            'volume_ratio': result['volume_ratio'],
+                            'close_off_low': result['close_off_low'],
+                            'momentum_score': result['momentum_score'],
+                            'high_volume': result['high_volume'],
+                            'extreme_volume': result.get('extreme_volume', False),
+                            'extreme_spread': result.get('extreme_spread', False),
+                            'spread_breakout': result['spread_breakout'],
+                            'momentum_breakout': result['momentum_breakout'],
+                            'current_bar': False  # Last closed bar
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+                
+                # Check current bar
+                if len(df) > 2:  # Need sufficient data for proper calculation
+                    detected, result = detect_confluence(df, check_bar=-1)  # Current bar
+                    
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result['timestamp'],
+                            'close': result['close_price'],
+                            'volume': result['volume'],
+                            'volume_usd': result['volume_usd'],
+                            'volume_ratio': result['volume_ratio'],
+                            'close_off_low': result['close_off_low'],
+                            'momentum_score': result['momentum_score'],
+                            'high_volume': result['high_volume'],
+                            'extreme_volume': result.get('extreme_volume', False),
+                            'extreme_spread': result.get('extreme_spread', False),
+                            'spread_breakout': result['spread_breakout'],
+                            'momentum_breakout': result['momentum_breakout'],
+                            'current_bar': True  # Current bar
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+                        
+            # Handle consolidation breakout strategy
             elif strategy == 'consolidation_breakout':                
                 from custom_strategies import detect_consolidation_breakout  # Correct import
                 
@@ -592,6 +697,9 @@ class UnifiedScanner:
                         'min_bars_inside_req': breakout_result.get('min_bars_inside_req'),
                         'height_pct': breakout_result.get('height_pct'),
                         'max_height_pct_req': breakout_result.get('max_height_pct_req'),
+                        'extreme_volume': cf_result_curr.get('extreme_volume', False),
+                        'extreme_spread': cf_result_curr.get('extreme_spread', False),
+                        'breakout_type': 'both' if (cb_detected_curr and chb_detected_curr) else 'channel_breakout' if chb_detected_curr else 'consolidation_breakout',
                     }
                     logging.info(f"{strategy} detected for {symbol} (current bar)")
                 
@@ -620,6 +728,9 @@ class UnifiedScanner:
                         'min_bars_inside_req': breakout_result.get('min_bars_inside_req'),
                         'height_pct': breakout_result.get('height_pct'),
                         'max_height_pct_req': breakout_result.get('max_height_pct_req'),
+                        'extreme_volume': cf_result_prev.get('extreme_volume', False),
+                        'extreme_spread': cf_result_prev.get('extreme_spread', False),
+                        'breakout_type': 'both' if (cb_detected_prev and chb_detected_prev) else 'channel_breakout' if chb_detected_prev else 'consolidation_breakout',
                     }
                     logging.info(f"{strategy} detected for {symbol} (last closed bar)")            
                 

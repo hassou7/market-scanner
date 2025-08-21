@@ -48,6 +48,12 @@ def detect_confluence(df, doji_threshold=5.0, ctx_len=7, range_floor=0.10,
     # Convert to DataFrame if needed
     df = pd.DataFrame(df) if not isinstance(df, pd.DataFrame) else df.copy()
     
+    # Ensure all required columns exist
+    required_cols = ['open', 'high', 'low', 'close', 'volume']
+    for col in required_cols:
+        if col not in df.columns:
+            df[col] = np.nan
+    
     # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
     # OHLCV DATA
     # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -192,6 +198,13 @@ def detect_confluence(df, doji_threshold=5.0, ctx_len=7, range_floor=0.10,
     spread_wakeup = isCloseInUpperhigh & above_all_wmas_spread
     spread_breakout = spread_wakeup & (spread == spread.rolling(3).max())
     
+    # Compute extreme spread (same pattern as extreme volume)
+    spread_sma21 = spread.rolling(21).mean()
+    spread_stdv21 = spread.rolling(21).std()
+    
+    # Extreme spread - using same approach as extreme volume
+    extreme_spread = (spread > (spread_sma21 + 2.0 * spread_stdv21)) & ((spread / spread_sma21) > 2)
+    
     # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
     # MOMENTUM ANALYSIS (Updated to match Pine Script exactly)
     # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -273,6 +286,11 @@ def detect_confluence(df, doji_threshold=5.0, ctx_len=7, range_floor=0.10,
     
     # Check the specified bar
     idx = check_bar
+    if idx < 0:
+        idx = len(df) + idx  # Convert negative index to positive
+    if not 0 <= idx < len(df):
+        return False, {}
+    
     if not confluence.iloc[idx]:
         return False, {}
     
@@ -288,6 +306,8 @@ def detect_confluence(df, doji_threshold=5.0, ctx_len=7, range_floor=0.10,
     high_vol_component = high_volume.iloc[idx]
     spread_component = spread_breakout.iloc[idx]
     momentum_component = momentum_breakout.iloc[idx]
+    extreme_volume_component = bool(extreme_volume.iloc[idx]) if hasattr(extreme_volume.iloc[idx], '__bool__') else extreme_volume.iloc[idx]
+    extreme_spread_component = bool(extreme_spread.iloc[idx]) if hasattr(extreme_spread.iloc[idx], '__bool__') else extreme_spread.iloc[idx]
     
     # Fix momentum score extraction to avoid FutureWarning
     if isinstance(score, pd.Series):
@@ -309,6 +329,8 @@ def detect_confluence(df, doji_threshold=5.0, ctx_len=7, range_floor=0.10,
         'high_volume': high_vol_component,
         'spread_breakout': spread_component,
         'momentum_breakout': momentum_component,
+        'extreme_volume': extreme_volume_component,
+        'extreme_spread': extreme_spread_component,
         'current_bar': check_bar == -1,
         'date': bar_idx.strftime('%Y-%m-%d %H:%M:%S') if hasattr(bar_idx, 'strftime') else str(bar_idx)
     }
