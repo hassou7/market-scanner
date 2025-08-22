@@ -1,22 +1,23 @@
 # strategies/loaded_bar.py
+
 def get_params():
     return {
         # Basic indicators
-        'lookback': 50, 
+        'lookback': 23, 
         'direction_opt': "None",
-        'bar_type_opt': "None",
-        'spread_opt': "Narrow",
+        'bar_type_opt': "New Low or Outside Bar",
+        'spread_opt': "None",
         'spread_std': 0.5,
-        'spread_abnormal_std': 2.0,
+        'spread_abnormal_std': 4.0,
         'momentum_opt': "None",
         'momentum_std': 0.5,
-        'volume_opt': "Abnormal",
-        'volume_std': 2.0,
-        'volume_abnormal_std': 3.0,
-        'close_opt': "Off Lows",
+        'volume_opt': "High",
+        'volume_std': 1.5,
+        'volume_abnormal_std': 4.5,
+        'close_opt': "In Highs",
         
         # Macro parameters
-        'macro_opt': "None",
+        'macro_opt': "Macro Low",
         'macro_method': "Count Based (V2)",
         
         # V1 (Price Based) parameters
@@ -26,14 +27,17 @@ def get_params():
         'v1_macro_percentile': 10.0,
         
         # V2 (Count Based) parameters
-        'v2_macro_short_lookback': 8,
-        'v2_macro_medium_lookback': 28,
-        'v2_macro_long_lookback': 48,
-        'v2_macro_percentile': 25.0,
+        'v2_macro_short_lookback': 7,
+        'v2_macro_medium_lookback': 13,
+        'v2_macro_long_lookback': 23,
+        'v2_macro_percentile': 10.0,
         
         # Breakout Close parameters
         'use_breakout_close': False,
         'breakout_close_percent': 30.0,
+
+        # New: Close within prev range (higher than prev low)
+        'use_close_within_prev': True,  # Set to True to enable
 
         # New Arctangent Ratio condition
         'use_arctangent_ratio': False,  # Optional

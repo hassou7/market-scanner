@@ -28,7 +28,7 @@ def calculate_basic_indicators(df, params):
                                (result['spread'] <= (result['mean_spread'] + spread_abnormal_std * result['std_spread']))
     result['is_abnormal_spread'] = result['spread'] > (result['mean_spread'] + spread_abnormal_std * result['std_spread'])
 
-    # percentile‐based spread check ---
+    # percentile-based spread check
     pct_sp = params.get('spread_pct_threshold', 0.10)  # default bottom 10%
     result['spread_q'] = result['spread'].rolling(lookback).quantile(pct_sp)
     result['is_narrow_spread_pct'] = result['spread'] <= result['spread_q']
@@ -37,14 +37,14 @@ def calculate_basic_indicators(df, params):
     result['sma20_volume'] = df['volume'].rolling(lookback).mean()
     result['std_volume'] = df['volume'].rolling(lookback).std()
     result['is_low_volume'] = df['volume'] < (result['sma20_volume'] - volume_std * result['std_volume'])
-    result['is_high_volume'] = (df['volume'] >= (result['sma20_volume'] - volume_std * result['std_volume'])) & \
-                               (df['volume'] <= (result['sma20_volume'] + volume_abnormal_std * result['std_volume']))
+    result['is_high_volume'] = (df['volume'] > (result['sma20_volume'] + volume_std * result['std_volume'])) & \
+                               (df['volume'] <= (result['sma20_volume'] + volume_abnormal_std * result['std_volume']))  # Fixed to '+' for consistency with Pine
     result['is_abnormal_volume'] = df['volume'] > (result['sma20_volume'] + volume_abnormal_std * result['std_volume'])
     result['is_not_low_volume'] = ~result['is_low_volume']
 
-     # what % of the last lookback bars are below today's volume?
+    # what % of the last lookback bars are below today's volume?
     pct_vol = params.get('volume_pct_threshold', 0.10)  # default bottom 10%
-    # 10th‐percentile volume over the same window
+    # 10th-percentile volume over the same window
     result['volume_q'] = df['volume'].rolling(lookback).quantile(pct_vol)
     # “true” if today’s vol is in the bottom pct_vol of the last lookback bars
     result['is_low_volume_pct'] = df['volume'] <= result['volume_q']
@@ -79,6 +79,9 @@ def calculate_basic_indicators(df, params):
     result['is_new_low'] = (df['low'] < df['low'].shift(1)) & (df['high'] <= df['high'].shift(1))
     result['is_outside_bar'] = (df['high'] > df['high'].shift(1)) & (df['low'] < df['low'].shift(1))
     result['is_inside_bar'] = (df['high'] < df['high'].shift(1)) & (df['low'] > df['low'].shift(1))
+    
+    # Close at least higher than previous low (for "within prev range" option)
+    result['is_close_within_prev'] = df['close'] >= df['low'].shift(1)
     
     # Breakout Close Detection
     v1_macro_short_lookback = params['v1_macro_short_lookback']
@@ -323,6 +326,9 @@ def apply_condition_filters(df, result, params):
     high_breakout_lookback = params.get('high_breakout_lookback', 10)
     high_breakout_count_percent = params.get('high_breakout_count_percent', 10)
     
+    # New: Extract close within prev param
+    use_close_within_prev = params.get('use_close_within_prev', False)
+    
     # Calculate arctangent ratio for all bars and store in result
     result['arctan_ratio'] = calculate_arctangent_ratio(df)
 
@@ -341,7 +347,7 @@ def apply_condition_filters(df, result, params):
     elif spread_opt == "Abnormal":
         condition = condition & result['is_abnormal_spread']
 
-    # optional percentile‐spread filter
+    # optional percentile-spread filter
     if params.get('use_spread_pct', False):
         condition &= result['is_narrow_spread_pct']
 
@@ -407,6 +413,10 @@ def apply_condition_filters(df, result, params):
     # Breakout close condition
     if use_breakout_close:
         condition = condition & result['is_breakout_close']
+    
+    # New: Close within prev range condition (higher than prev low)
+    if use_close_within_prev:
+        condition = condition & result['is_close_within_prev']
     
     # Optional arctangent ratio condition
     if use_arctangent_ratio:
