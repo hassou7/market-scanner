@@ -162,7 +162,7 @@ def detect_confluence(df, doji_threshold=5.0, ctx_len=7, range_floor=0.10,
     extreme_volume = (curr_volume > (vol_sma21 + 3.0 * vol_stdv21)) & ((curr_volume / vol_sma21) > 3)
     
     # High volume definition
-    high_volume = (serious_volume | absolute_high_vol | broader_relative_high_vol | local_relative_high_vol) & ~extreme_volume
+    high_volume = (serious_volume | absolute_high_vol | broader_relative_high_vol | local_relative_high_vol) #& ~extreme_volume
     
     # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
     # SPREAD ANALYSIS
