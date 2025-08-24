@@ -31,7 +31,8 @@ STRATEGY_CHANNELS = {
     "consolidation": "start_trend",
     "consolidation_breakout": "start_trend",
     "channel_breakout": "start_trend",
-    "hbs_breakout": "confluence"
+    "sma50_breakout": "start_trend",
+    "hbs_breakout": "hbs_breakout"
 }
 
 # Volume thresholds for different timeframes

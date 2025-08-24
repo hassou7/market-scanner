@@ -7,7 +7,7 @@ from telegram.ext import Application
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout
+from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout, detect_sma50_breakout
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
 import os
@@ -40,7 +40,8 @@ class UnifiedScanner:
             'confluence': 'Confluence Signal',
             'consolidation': 'Consolidation Pattern',
             'consolidation_breakout': 'Consolidation Breakout Pattern',
-            'channel_breakout': 'Channel Breakout Pattern',  # NEW
+            'channel_breakout': 'Channel Breakout Pattern',
+            'sma50_breakout': '50SMA Breakout',
             'hbs_breakout': 'HBS Breakout', 
             'breakout_bar': 'Breakout Bar',
             'stop_bar': 'Stop Bar',
@@ -208,6 +209,24 @@ class UnifiedScanner:
                         f"Channel Slope: {result.get('channel_slope', 0):,.4f}\n"
                         f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
                         f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'sma50_breakout':
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Up')
+                    direction_emoji = "🟢"  # Always bullish for SMA breakout
+                    breakout_type = result.get('breakout_type', 'classic_breakout')
+                    breakout_strength = result.get('breakout_strength', 'Unknown')
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Price vs SMA: {result.get('price_vs_sma_pct', 0):+.2f}%\n"
+                        f"Low vs SMA: {result.get('low_vs_sma_pct', 0):+.2f}%\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Close Off Low: {result.get('close_off_low', 0):,.1f}%\n"
                         f"{'='*30}\n"
                     )
                 elif strategy == 'hbs_breakout':
@@ -664,6 +683,62 @@ class UnifiedScanner:
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
 
+            # Handle sma50_breakout strategy
+            elif strategy == 'sma50_breakout':
+                from custom_strategies import detect_sma50_breakout
+                
+                # Check last closed bar
+                if len(df) > 50:  # Need enough data for 50SMA
+                    detected, result = detect_sma50_breakout(df, use_pre_breakout=False, check_bar=-2)
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-2]),
+                            'close': df['close'].iloc[-2],
+                            'current_bar': False,
+                            'volume_usd': result.get('volume_usd'),
+                            'volume_ratio': result.get('volume_ratio'),
+                            # SMA-specific information
+                            'sma50': result.get('sma50'),
+                            'atr': result.get('atr'),
+                            'price_vs_sma_pct': result.get('price_vs_sma_pct'),
+                            'low_vs_sma_pct': result.get('low_vs_sma_pct'),
+                            'breakout_type': result.get('breakout_type'),
+                            'breakout_strength': result.get('breakout_strength'),
+                            'pre_breakout_threshold': result.get('pre_breakout_threshold'),
+                            'atr_threshold_distance': result.get('atr_threshold_distance'),
+                            'close_off_low': result.get('close_off_low'),
+                            'bar_range': result.get('bar_range'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+            
+                # Check current bar
+                if len(df) > 51:  # Need one more bar for current analysis
+                    detected, result = detect_sma50_breakout(df, use_pre_breakout=False, check_bar=-1)
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-1]),
+                            'close': df['close'].iloc[-1],
+                            'current_bar': True,
+                            'volume_usd': result.get('volume_usd'),
+                            'volume_ratio': result.get('volume_ratio'),
+                            # SMA-specific information
+                            'sma50': result.get('sma50'),
+                            'atr': result.get('atr'),
+                            'price_vs_sma_pct': result.get('price_vs_sma_pct'),
+                            'low_vs_sma_pct': result.get('low_vs_sma_pct'),
+                            'breakout_type': result.get('breakout_type'),
+                            'breakout_strength': result.get('breakout_strength'),
+                            'pre_breakout_threshold': result.get('pre_breakout_threshold'),
+                            'atr_threshold_distance': result.get('atr_threshold_distance'),
+                            'close_off_low': result.get('close_off_low'),
+                            'bar_range': result.get('bar_range'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+            
             # Handle hbs_breakout strategy (combination of consolidation_breakout + confluence)
             elif strategy == 'hbs_breakout':
                 from custom_strategies import detect_consolidation_breakout, detect_confluence, detect_channel_breakout

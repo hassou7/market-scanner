@@ -21,6 +21,7 @@ from .confluence import detect_confluence
 from .consolidation import detect_consolidation
 from .consolidation_breakout import detect_consolidation_breakout
 from .channel_breakout import detect_channel_breakout
+from .sma50_breakout import detect_sma50_breakout
 
 # Export all functions for easy import
 __all__ = [
@@ -30,5 +31,6 @@ __all__ = [
     'detect_confluence',
     'detect_consolidation',
     'detect_consolidation_breakout',
-    'detect_channel_breakout'
+    'detect_channel_breakout',
+    'detect_sma50_breakout'
 ]
