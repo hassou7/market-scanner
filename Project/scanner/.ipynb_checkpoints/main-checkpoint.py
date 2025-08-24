@@ -12,6 +12,9 @@ from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_
 from utils.config import VOLUME_THRESHOLDS
 import os
 
+from exchanges.sf_kucoin_client import SFKucoinClient
+from exchanges.sf_mexc_client import SFMexcClient
+
 # Function to check if progress bars should be disabled
 def should_disable_progress():
     return os.environ.get("DISABLE_PROGRESS") == "1"
@@ -66,7 +69,9 @@ class UnifiedScanner:
             "BybitSpotClient": "Bybit Spot",
             "GateioSpotClient": "Gateio Spot",
             "KucoinSpotClient": "KuCoin Spot",
-            "MexcSpotClient": "MEXC Spot"
+            "MexcSpotClient": "MEXC Spot",
+            "SFKucoinClient": "KuCoin Spot",
+            "SFMexcClient": "MEXC Spot"
         }
         return mappings.get(class_name, class_name.replace("Client", ""))
 
@@ -238,7 +243,7 @@ class UnifiedScanner:
                     elif has_extreme_spread:
                         extreme_display = "🟠 Spread"
                     else:
-                        extreme_display = "None"
+                        extreme_display = "🟢 None"
                     
                     # Format price and volume
                     price_formatted = f"${result.get('close', 0):,.2f}"
@@ -250,7 +255,7 @@ class UnifiedScanner:
                         f"Time: {date} | {bar_status}\n"
                         f"----\n"
                         f"Context: {context_display}\n"
-                        f"Extreme: {extreme_display}\n"
+                        f"Is extreme: {extreme_display}\n"
                         f"Direction: {direction_display}\n"
                         f"{'='*30}\n"
                     )
@@ -782,9 +787,13 @@ async def run_scanner(exchange, timeframe, strategies, telegram_config=None, min
         "bybit_spot": BybitSpotClient,
         "gateio_spot": GateioSpotClient,
         "kucoin_spot": KucoinSpotClient,
-        "mexc_spot": MexcSpotClient
+        "mexc_spot": MexcSpotClient,
+        "sf_kucoin_1w": SFKucoinClient,
+        "sf_mexc_1w": SFMexcClient
     }
-    
+    if exchange in ["sf_kucoin_1w", "sf_mexc_1w"] and timeframe != "1w":
+        raise ValueError(f"SF exchange {exchange} only supports 1w timeframe, got {timeframe}")
+            
     client_class = exchange_map.get(exchange)
     if not client_class:
         raise ValueError(f"Unsupported exchange: {exchange}")

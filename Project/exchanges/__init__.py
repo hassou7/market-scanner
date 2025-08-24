@@ -10,3 +10,17 @@ from .binance_spot_client import BinanceSpotClient
 from .binance_futures_client import BinanceFuturesClient
 from .bybit_client import BybitClient as BybitSpotClient
 from .bybit_futures_client import BybitFuturesClient
+from .sf_kucoin_client import SFKucoinClient
+from .sf_mexc_client import SFMexcClient
+
+__all__ = [
+    'BaseExchangeClient',
+    'BinanceSpotClient', 
+    'BinanceFuturesClient',
+    'BybitClient',
+    'KucoinClient',
+    'MexcClient', 
+    'GateioClient',
+    'SFKucoinClient', 
+    'SFMexcClient'
+]

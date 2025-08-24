@@ -1,10 +1,10 @@
-#run_parallel_scanner.py
 #!/usr/bin/env python3
 """
 Parallel Market Scanner Runner
 
 This script provides functions to run market scans on cryptocurrency exchanges in parallel.
 It supports both Jupyter Notebook interactive use and standalone execution.
+Updated with SF exchange support for KuCoin and MEXC 1w data.
 """
 
 import asyncio
@@ -37,6 +37,33 @@ logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 from scanner.main import run_scanner, kline_cache
 from utils.config import get_telegram_config
+
+# Define exchange groups including SF exchanges
+futures_exchanges = ["binance_futures", "bybit_futures", "gateio_futures", "mexc_futures"]
+spot_exchanges = ["binance_spot", "bybit_spot", "gateio_spot", "mexc_spot", "kucoin_spot"]
+spot_exchanges_1w = ["binance_spot", "bybit_spot", "gateio_spot"]
+
+# New SF exchange group for 1w data from KuCoin and MEXC
+sf_exchanges_1w = ["sf_kucoin_1w", "sf_mexc_1w"]
+
+# All available exchanges including SF
+all_exchanges = futures_exchanges + spot_exchanges + sf_exchanges_1w
+
+# Validation function for SF exchanges
+def validate_sf_exchange_timeframe(exchanges, timeframes):
+    """Validate that SF exchanges are only used with compatible timeframes"""
+    sf_exchanges = ["sf_kucoin_1w", "sf_mexc_1w"]
+    
+    for exchange in exchanges:
+        if exchange in sf_exchanges:
+            # SF exchanges only support 1w
+            invalid_timeframes = [tf for tf in timeframes if tf != "1w"]
+            if invalid_timeframes:
+                raise ValueError(
+                    f"SF exchange '{exchange}' only supports 1w timeframe. "
+                    f"Invalid timeframes requested: {invalid_timeframes}"
+                )
+    return True
 
 def print_header(text):
     logging.info(f"\n{'='*80}")
@@ -85,6 +112,9 @@ async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["
         "binance_spot", "bybit_spot", "gateio_spot", "mexc_spot", "kucoin_spot"
     ]
     exchanges = exchanges if exchanges is not None else default_exchanges
+    
+    # Add SF exchange validation
+    validate_sf_exchange_timeframe(exchanges, [timeframe])
     
     print_header(f"RUNNING PARALLEL SCANS ON ALL EXCHANGES {timeframe}")
     logging.info(f"• Exchanges: {', '.join(exchanges)}")
@@ -182,7 +212,16 @@ async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, ex
         "binance_futures", "bybit_futures", "gateio_futures", "mexc_futures",
         "binance_spot", "bybit_spot", "gateio_spot", "mexc_spot", "kucoin_spot"
     ]
-    exchanges = exchanges if exchanges is not None else default_exchanges
+    
+    # Smart exchange selection based on timeframes
+    if exchanges is None:
+        if timeframes == ["1w"] or all(tf == "1w" for tf in timeframes):
+            exchanges = sf_exchanges_1w  # Use SF exchanges for 1w-only scans
+        else:
+            exchanges = default_exchanges  # Use regular exchanges for other timeframes
+    
+    # Add SF exchange validation
+    validate_sf_exchange_timeframe(exchanges, timeframes)
     
     print_header(f"RUNNING PARALLEL MULTI-TIMEFRAME SCAN ON ALL EXCHANGES")
     logging.info(f"• Exchanges: {', '.join(exchanges)}")
@@ -247,15 +286,42 @@ async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, ex
     
     return all_results
 
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        logging.info("Usage: python run_parallel_scanner.py <timeframe> <strategies> [exchanges] [users] [send_telegram]")
+        print("Usage: python run_parallel_scanner.py <timeframe> <strategies> [exchanges] [users] [send_telegram]")
+        print()
+        print("Examples:")
+        print("  python run_parallel_scanner.py 1w 'loaded_bar,breakout_bar' 'sf_kucoin_1w,sf_mexc_1w' 'default' true")
+        print("  python run_parallel_scanner.py 4h 'confluence,test_bar' 'binance_spot,bybit_spot' 'default' true")
+        print("  python run_parallel_scanner.py 1d 'consolidation_breakout,channel_breakout' 'all' 'default' true")
         sys.exit(1)
     
     timeframe = sys.argv[1]
     strategies = sys.argv[2].split(',')
-    exchanges = sys.argv[3].split(',') if len(sys.argv) > 3 else None
+    
+    # Handle exchange argument
+    if len(sys.argv) > 3:
+        exchange_arg = sys.argv[3]
+        if exchange_arg == 'all':
+            exchanges = all_exchanges
+        elif exchange_arg == 'sf_1w':
+            exchanges = sf_exchanges_1w
+        elif exchange_arg == 'spot':
+            exchanges = spot_exchanges
+        elif exchange_arg == 'futures':
+            exchanges = futures_exchanges
+        else:
+            exchanges = exchange_arg.split(',')
+    else:
+        exchanges = None
+    
     users = sys.argv[4].split(',') if len(sys.argv) > 4 else ["default"]
     send_telegram = sys.argv[5].lower() == 'true' if len(sys.argv) > 5 else True
     
-    asyncio.run(run_parallel_exchanges(timeframe, strategies, exchanges, users, send_telegram))
+    try:
+        asyncio.run(run_parallel_exchanges(timeframe, strategies, exchanges, users, send_telegram))
+    except ValueError as e:
+        logging.error(f"Configuration error: {e}")
+        sys.exit(1)
