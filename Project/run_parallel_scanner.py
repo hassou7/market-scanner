@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#run_parallel_scanner.py
 """
 Parallel Market Scanner Runner
 
@@ -90,7 +91,7 @@ async def scan_exchange(exchange, timeframe, strategies, telegram_config, min_vo
         logging.error(f"[{end_time}] ✗ Error scanning {exchange}: {str(e)}")
         return exchange, {}
 
-async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["default"], send_telegram=True, min_volume_usd=None):
+async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["default"], send_telegram=True, min_volume_usd=None, save_to_csv=False):
     """Run scans on multiple exchanges in parallel.
     
     Args:
@@ -100,6 +101,7 @@ async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["
         users (list): List of users to notify
         send_telegram (bool): Whether to send Telegram notifications
         min_volume_usd (float): Minimum USD volume threshold (or None to use defaults)
+        save_to_csv (bool): Whether to save results to CSV files
         
     Returns:
         dict: Combined results from all exchanges
@@ -122,6 +124,7 @@ async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["
     logging.info(f"• Strategies: {', '.join(strategies)}")
     logging.info(f"• Notifications: {'Enabled' if send_telegram else 'Disabled'}")
     logging.info(f"• Recipients: {', '.join(users)}")
+    logging.info(f"• Save to CSV: {'Enabled' if save_to_csv else 'Disabled'}")
     logging.info(f"• Start time: {start_time.strftime('%H:%M:%S')}")
     logging.info("\nFetching market data...\n")
 
@@ -143,7 +146,10 @@ async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["
             if strategy not in all_results:
                 all_results[strategy] = []
             
-            all_results[strategy].extend([{**r, 'exchange': exchange} for r in res_list])
+            for r in res_list:
+                r['exchange'] = exchange
+                r['timeframe'] = timeframe
+            all_results[strategy].extend(res_list)
     
     end_time = datetime.now()
     duration = end_time - start_time
@@ -160,10 +166,19 @@ async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["
             df = pd.DataFrame(res)
             for col in ['date', 'timestamp']:
                 if col in df.columns:
-                    df[col] = pd.to_datetime(df[col])
+                    df[col] = pd.to_datetime(df[col], utc=True)
             df = df.sort_values(['exchange', 'symbol']) if 'symbol' in df.columns else df
             logging.info(f"\n{strategy.replace('_', ' ').title()}: {len(res)} signals")
             display(df)
+    
+    if save_to_csv:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        for strategy, res in all_results.items():
+            if res:
+                df = pd.DataFrame(res)
+                filename = f"{strategy}_{timeframe}_{timestamp}.csv"
+                df.to_csv(filename, index=False)
+                logging.info(f"Saved {strategy} results to {filename}")
     
     return all_results
 
@@ -187,7 +202,7 @@ async def scan_exchange_timeframe(exchange, timeframe, strategies, telegram_conf
         logging.error(f"[{end_time}] ✗ Error scanning {exchange} - {timeframe}: {str(e)}")
         return exchange, timeframe, {}
 
-async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, exchanges=None, users=["default"], send_telegram=True, min_volume_usd=None):
+async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, exchanges=None, users=["default"], send_telegram=True, min_volume_usd=None, save_to_csv=False):
     """
     Run scans on multiple timeframes across multiple exchanges in parallel
     
@@ -198,6 +213,7 @@ async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, ex
         users (list): List of users to notify
         send_telegram (bool): Whether to send Telegram notifications
         min_volume_usd (float): Minimum USD volume threshold (or None to use defaults)
+        save_to_csv (bool): Whether to save results to CSV files
         
     Returns:
         dict: Combined results across all timeframes and exchanges
@@ -229,6 +245,7 @@ async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, ex
     logging.info(f"• Strategies: {', '.join(strategies)}")
     logging.info(f"• Notifications: {'Enabled' if send_telegram else 'Disabled'}")
     logging.info(f"• Recipients: {', '.join(users)}")
+    logging.info(f"• Save to CSV: {'Enabled' if save_to_csv else 'Disabled'}")
     logging.info(f"• Start time: {start_time.strftime('%H:%M:%S')}")
     logging.info("\nFetching market data...\n")
     
@@ -279,23 +296,54 @@ async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, ex
             df = pd.DataFrame(res)
             for col in ['date', 'timestamp']:
                 if col in df.columns:
-                    df[col] = pd.to_datetime(df[col])
+                    df[col] = pd.to_datetime(df[col], utc=True)
             df = df.sort_values(['exchange', 'timeframe', 'symbol']) if 'symbol' in df.columns else df
             logging.info(f"\n{strategy.replace('_', ' ').title()}: {len(res)} signals")
             display(df)
     
+    if save_to_csv:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        for strategy, res in all_results.items():
+            if res:
+                df = pd.DataFrame(res)
+                filename = f"{strategy}_multi_{timestamp}.csv"
+                df.to_csv(filename, index=False)
+                logging.info(f"Saved {strategy} results to {filename}")
+    
     return all_results
 
-
+async def run_scan(timeframes, exchanges, strategies, min_volume_usd=None):
+    results = []  # List to collect detections
+    result = await run_parallel_multi_timeframes_all_exchanges(
+        timeframes=timeframes,
+        strategies=strategies,
+        exchanges=exchanges,
+        users=["default"],  # Or None if not sending Telegram
+        send_telegram=False,  # Disable for dashboard
+        min_volume_usd=min_volume_usd
+    )
+    # Assuming 'result' is a dict/list of detections; loop and append
+    for detection in result:  # Adjust based on your actual result format
+        results.append({
+            'Symbol': detection['symbol'],
+            'Exchange': detection['exchange'],
+            'Timeframe': detection['timeframe'],
+            'Strategy': detection['strategy'],
+            'Detected': True,
+            'Volume': detection['volume_usd'],
+            'Scan_Price': detection['current_price'],  # Fetch price at scan time
+            'Scan_Time': pd.Timestamp.now()
+        })
+    return pd.DataFrame(results)
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python run_parallel_scanner.py <timeframe> <strategies> [exchanges] [users] [send_telegram]")
+        print("Usage: python run_parallel_scanner.py <timeframe> <strategies> [exchanges] [users] [send_telegram] [save_to_csv]")
         print()
         print("Examples:")
-        print("  python run_parallel_scanner.py 1w 'loaded_bar,breakout_bar' 'sf_kucoin_1w,sf_mexc_1w' 'default' true")
-        print("  python run_parallel_scanner.py 4h 'confluence,test_bar' 'binance_spot,bybit_spot' 'default' true")
-        print("  python run_parallel_scanner.py 1d 'consolidation_breakout,channel_breakout' 'all' 'default' true")
+        print("  python run_parallel_scanner.py 1w 'loaded_bar,breakout_bar' 'sf_kucoin_1w,sf_mexc_1w' 'default' true true")
+        print("  python run_parallel_scanner.py 4h 'confluence,test_bar' 'binance_spot,bybit_spot' 'default' true false")
+        print("  python run_parallel_scanner.py 1d 'consolidation_breakout,channel_breakout' 'all' 'default' true true")
         sys.exit(1)
     
     timeframe = sys.argv[1]
@@ -319,9 +367,10 @@ if __name__ == "__main__":
     
     users = sys.argv[4].split(',') if len(sys.argv) > 4 else ["default"]
     send_telegram = sys.argv[5].lower() == 'true' if len(sys.argv) > 5 else True
+    save_to_csv = sys.argv[6].lower() == 'true' if len(sys.argv) > 6 else False
     
     try:
-        asyncio.run(run_parallel_exchanges(timeframe, strategies, exchanges, users, send_telegram))
+        asyncio.run(run_parallel_exchanges(timeframe, strategies, exchanges, users, send_telegram, save_to_csv=save_to_csv))
     except ValueError as e:
         logging.error(f"Configuration error: {e}")
         sys.exit(1)

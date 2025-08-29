@@ -7,7 +7,7 @@ from telegram.ext import Application
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout, detect_sma50_breakout
+from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout, detect_sma50_breakout, detect_wedge_breakout
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
 import os
@@ -21,6 +21,23 @@ def should_disable_progress():
     
 kline_cache = {}
 
+def get_close_position_indicator(high, low, close):
+    """Generate close position indicator with 3-dot system (0-30%, 30-70%, 70-100% ranges)"""
+    bar_range = high - low
+    if bar_range <= 0:
+        return "○●○", 50.0  # Default to middle if no range
+    
+    close_position_pct = ((close - low) / bar_range) * 100
+    
+    if close_position_pct <= 30:
+        indicator = "●○○"  # 0-30%
+    elif close_position_pct <= 70:
+        indicator = "○●○"  # 30-70%
+    else:
+        indicator = "○○●"  # 70-100%
+    
+    return indicator, close_position_pct
+    
 class UnifiedScanner:
     def __init__(self, exchange_client, strategies, telegram_config=None, min_volume_usd=None):
         self.exchange_client = exchange_client
@@ -41,6 +58,7 @@ class UnifiedScanner:
             'consolidation': 'Consolidation Pattern',
             'consolidation_breakout': 'Consolidation Breakout Pattern',
             'channel_breakout': 'Channel Breakout Pattern',
+            'wedge_breakout': 'Wedge Breakout Pattern',
             'sma50_breakout': '50SMA Breakout',
             'hbs_breakout': 'HBS Breakout', 
             'breakout_bar': 'Breakout Bar',
@@ -157,8 +175,11 @@ class UnifiedScanner:
                         f"Components: Vol={result.get('high_volume', False)}, "
                         f"Spread={result.get('spread_breakout', False)}, "
                         f"Mom={result.get('momentum_breakout', False)}\n"
-                        f"{'='*30}\n"
                     )
+                    # Add engulfing reversal info if present
+                    if result.get('is_engulfing_reversal', False):
+                        signal_message += f"Pattern:⚡Engulfing Reversal!\n"
+                    signal_message += f"{'='*30}\n"
                 elif strategy == 'consolidation':
                     signal_message = (
                         f"Symbol: {symbol}\n"
@@ -181,6 +202,7 @@ class UnifiedScanner:
                     signal_message = (
                         f"Symbol: {symbol}\n"
                         f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
                         f"Time: {date} - {bar_status}\n"
                         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
                         f"Volume Ratio: {volume_ratio:,.2f}x\n"
@@ -198,9 +220,10 @@ class UnifiedScanner:
                     channel_direction = result.get('channel_direction', 'Unknown')
                     
                     signal_message = (
-                        f"Symbol: {symbol}\n"
-                        f"Channel Direction: {channel_direction}\n"
+                        f"Symbol: {symbol}\n"                        
                         f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Channel Direction: {channel_direction}\n"
                         f"Time: {date} - {bar_status}\n"
                         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
                         f"Volume Ratio: {volume_ratio:,.2f}x\n"
@@ -209,6 +232,29 @@ class UnifiedScanner:
                         f"Channel Slope: {result.get('channel_slope', 0):,.4f}\n"
                         f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
                         f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'wedge_breakout':
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Unknown')
+                    direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
+                    channel_direction = result.get('channel_direction', 'Unknown')
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Wedge Direction: {channel_direction}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Wedge Age: {result.get('channel_age', 0)} bars\n"
+                        f"Slope: {result.get('percent_growth_per_bar', 0):+.2f}% per bar\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
                         f"{'='*30}\n"
                     )
                 elif strategy == 'sma50_breakout':
@@ -221,12 +267,12 @@ class UnifiedScanner:
                     
                     signal_message = (
                         f"Symbol: {symbol}\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
                         f"Time: {date} - {bar_status}\n"
                         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
                         f"Price vs SMA: {result.get('price_vs_sma_pct', 0):+.2f}%\n"
                         f"Low vs SMA: {result.get('low_vs_sma_pct', 0):+.2f}%\n"
                         f"{volume_period} Volume: ${volume_usd:,.2f}\n"
-                        f"Close Off Low: {result.get('close_off_low', 0):,.1f}%\n"
                         f"{'='*30}\n"
                     )
                 elif strategy == 'hbs_breakout':
@@ -273,6 +319,7 @@ class UnifiedScanner:
                         f"<a href='{tv_link}'>{symbol}</a> | {price_formatted} | Vol: {volume_formatted}\n"
                         f"Time: {date} | {bar_status}\n"
                         f"----\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
                         f"Context: {context_display}\n"
                         f"Is extreme: {extreme_display}\n"
                         f"Direction: {direction_display}\n"
@@ -511,51 +558,93 @@ class UnifiedScanner:
             elif strategy == 'confluence':
                 from custom_strategies import detect_confluence
                 
-                # Check last closed bar
-                if len(df) > 1:
-                    detected, result = detect_confluence(df, check_bar=-2)  # Last closed bar
-                    
-                    if detected:
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'date': result['timestamp'],
-                            'close': result['close_price'],
-                            'volume': result['volume'],
-                            'volume_usd': result['volume_usd'],
-                            'volume_ratio': result['volume_ratio'],
-                            'close_off_low': result['close_off_low'],
-                            'momentum_score': result['momentum_score'],
-                            'high_volume': result['high_volume'],
-                            'extreme_volume': result.get('extreme_volume', False),
-                            'extreme_spread': result.get('extreme_spread', False),
-                            'spread_breakout': result['spread_breakout'],
-                            'momentum_breakout': result['momentum_breakout'],
-                            'current_bar': False  # Last closed bar
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+                # To scan for engulfing reversals, we need to check both bullish and bearish directions
+                # We'll collect results for both, but only include if detected or is_engulfing_reversal is True
+                confluence_results = []
                 
-                # Check current bar
-                if len(df) > 2:  # Need sufficient data for proper calculation
-                    detected, result = detect_confluence(df, check_bar=-1)  # Current bar
+                # Check last closed bar (idx = -2)
+                if len(df) > 2:  # Need at least 3 bars for reversal pattern
+                    # Bullish check (for up reversal: bear at -3, bull at -2)
+                    detected_bull, result_bull = detect_confluence(df, check_bar=-2, is_bullish=True)
+                    if detected_bull or result_bull.get('is_engulfing_reversal', False):
+                        confluence_results.append({
+                            'detected_bull': detected_bull,
+                            'result_bull': result_bull,
+                            'bar_type': 'last_closed'
+                        })
                     
-                    if detected:
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'date': result['timestamp'],
-                            'close': result['close_price'],
-                            'volume': result['volume'],
-                            'volume_usd': result['volume_usd'],
-                            'volume_ratio': result['volume_ratio'],
-                            'close_off_low': result['close_off_low'],
-                            'momentum_score': result['momentum_score'],
-                            'high_volume': result['high_volume'],
-                            'extreme_volume': result.get('extreme_volume', False),
-                            'extreme_spread': result.get('extreme_spread', False),
-                            'spread_breakout': result['spread_breakout'],
-                            'momentum_breakout': result['momentum_breakout'],
-                            'current_bar': True  # Current bar
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+                    # # Bearish check (for down reversal: bull at -3, bear at -2)
+                    # detected_bear, result_bear = detect_confluence(df, check_bar=-2, is_bullish=False)
+                    # if detected_bear or result_bear.get('is_engulfing_reversal', False):
+                    #     confluence_results.append({
+                    #         'detected_bear': detected_bear,
+                    #         'result_bear': result_bear,
+                    #         'bar_type': 'last_closed'
+                    #     })
+                
+                # Check current bar (idx = -1)
+                if len(df) > 2:
+                    # Bullish check (for up reversal: bear at -2, bull at -1)
+                    detected_bull, result_bull = detect_confluence(df, check_bar=-1, is_bullish=True)
+                    if detected_bull or result_bull.get('is_engulfing_reversal', False):
+                        confluence_results.append({
+                            'detected_bull': detected_bull,
+                            'result_bull': result_bull,
+                            'bar_type': 'current'
+                        })
+                    
+                    # # Bearish check (for down reversal: bull at -2, bear at -1)
+                    # detected_bear, result_bear = detect_confluence(df, check_bar=-1, is_bullish=False)
+                    # if detected_bear or result_bear.get('is_engulfing_reversal', False):
+                    #     confluence_results.append({
+                    #         'detected_bear': detected_bear,
+                    #         'result_bear': result_bear,
+                    #         'bar_type': 'current'
+                    #     })
+                
+                # Process and store the most relevant result (prioritize reversals and current bar)
+                if confluence_results:
+                    # Sort to prioritize current bar and reversals
+                    prioritized = sorted(confluence_results, key=lambda x: (
+                        1 if x['bar_type'] == 'current' else 0,
+                        1 if (x.get('result_bull') and x['result_bull'].get('is_engulfing_reversal')) or 
+                                (x.get('result_bear') and x['result_bear'].get('is_engulfing_reversal')) else 0,
+                        -1
+                    ), reverse=True)
+                    
+                    top_result = prioritized[0]
+                    if top_result.get('result_bull'):
+                        base_result = top_result['result_bull']
+                        detected = top_result['detected_bull']
+                    else:
+                        base_result = top_result['result_bear']
+                        detected = top_result['detected_bear']
+                    
+                    # Ensure we include is_engulfing_reversal
+                    is_reversal = base_result.get('is_engulfing_reversal', False)
+                    
+                    results[strategy] = {
+                        'symbol': symbol,
+                        'date': base_result['timestamp'],
+                        'close': base_result['close_price'],
+                        'volume': base_result['volume'],
+                        'volume_usd': base_result['volume_usd'],
+                        'volume_ratio': base_result['volume_ratio'],
+                        'close_off_low': base_result['close_off_low'],
+                        'momentum_score': base_result['momentum_score'],
+                        'high_volume': base_result['high_volume'],
+                        'extreme_volume': base_result.get('extreme_volume', False),
+                        'extreme_spread': base_result.get('extreme_spread', False),
+                        'spread_breakout': base_result['spread_breakout'],
+                        'momentum_breakout': base_result['momentum_breakout'],
+                        'current_bar': (top_result['bar_type'] == 'current'),
+                        'direction': base_result.get('direction', 'Up'),
+                        'is_engulfing_reversal': is_reversal,
+                    }
+                    
+                    reversal_note = " (Reversal!)" if is_reversal else ""
+                    bar_note = " (current bar)" if top_result['bar_type'] == 'current' else " (last closed bar)"
+                    logging.info(f"{strategy} detected for {symbol}{bar_note}{reversal_note}")
                         
             # Handle consolidation breakout strategy
             elif strategy == 'consolidation_breakout':                
@@ -569,6 +658,13 @@ class UnifiedScanner:
                         volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
                         volume_mean = df['volume'].rolling(7).mean().iloc[-2]
                         volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
+                        # Add close position indicator
+                        bar_idx = -2 if not result.get('current_bar', True) else -1
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-2], 
+                            df['low'].iloc[-2], 
+                            df['close'].iloc[-2]
+                        )
                         
                         results[strategy] = {
                             'symbol': symbol,
@@ -586,6 +682,8 @@ class UnifiedScanner:
                             'min_bars_inside_req': result.get('min_bars_inside_req'),
                             'height_pct': result.get('height_pct'),
                             'max_height_pct_req': result.get('max_height_pct_req'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
                         }
                         logging.info(f"{strategy} detected for {symbol} (last closed bar)")
 
@@ -597,6 +695,11 @@ class UnifiedScanner:
                         volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
                         volume_mean = df['volume'].rolling(7).mean().iloc[-1]
                         volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-1], 
+                            df['low'].iloc[-1], 
+                            df['close'].iloc[-1]
+                        )
                         
                         results[strategy] = {
                             'symbol': symbol,
@@ -614,10 +717,12 @@ class UnifiedScanner:
                             'min_bars_inside_req': result.get('min_bars_inside_req'),
                             'height_pct': result.get('height_pct'),
                             'max_height_pct_req': result.get('max_height_pct_req'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
 
-            # Handle channel_breakout strategy (NEW)
+            # Handle channel_breakout strategy
             elif strategy == 'channel_breakout':
                 from custom_strategies import detect_channel_breakout
                 
@@ -629,6 +734,11 @@ class UnifiedScanner:
                         volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
                         volume_mean = df['volume'].rolling(7).mean().iloc[-2]
                         volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-2], 
+                            df['low'].iloc[-2], 
+                            df['close'].iloc[-2]
+                        )
                         
                         results[strategy] = {
                             'symbol': symbol,
@@ -649,6 +759,8 @@ class UnifiedScanner:
                             'max_height_pct_req': result.get('max_height_pct_req'),
                             'atr_ok': result.get('atr_ok'),
                             'window_size': result.get('window_size'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
                         }
                         logging.info(f"{strategy} detected for {symbol} (last closed bar)")
 
@@ -660,6 +772,11 @@ class UnifiedScanner:
                         volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
                         volume_mean = df['volume'].rolling(7).mean().iloc[-1]
                         volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-1], 
+                            df['low'].iloc[-1], 
+                            df['close'].iloc[-1]
+                        )
                         
                         results[strategy] = {
                             'symbol': symbol,
@@ -680,9 +797,95 @@ class UnifiedScanner:
                             'max_height_pct_req': result.get('max_height_pct_req'),
                             'atr_ok': result.get('atr_ok'),
                             'window_size': result.get('window_size'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
 
+            # Handle wedge_breakout strategy
+            elif strategy == 'wedge_breakout':
+                from custom_strategies import detect_wedge_breakout
+                
+                # Check last closed bar
+                if len(df) > 23:  # Minimum required data
+                    detected, result = detect_wedge_breakout(df, check_bar=-2)
+                    if detected:
+                        # Calculate volume info for breakout
+                        volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-2]
+                        volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-2], 
+                            df['low'].iloc[-2], 
+                            df['close'].iloc[-2]
+                        )
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-2]),
+                            'close': df['close'].iloc[-2],
+                            'current_bar': False,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Wedge-specific information
+                            'channel_age': result.get('channel_age'),
+                            'channel_direction': result.get('channel_direction'),
+                            'channel_slope': result.get('channel_slope'),
+                            'percent_growth_per_bar': result.get('percent_growth_per_bar'),
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
+                            'atr_ok': result.get('atr_ok'),
+                            'window_size': result.get('window_size'),
+                            'entry_idx': result.get('entry_idx'),
+                            'left_idx': result.get('left_idx'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+
+                # Check current bar
+                if len(df) > 24:  # Need one more bar for current analysis
+                    detected, result = detect_wedge_breakout(df, check_bar=-1)
+                    if detected:
+                        # Calculate volume info for breakout
+                        volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-1]
+                        volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-1], 
+                            df['low'].iloc[-1], 
+                            df['close'].iloc[-1]
+                        )
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-1]),
+                            'close': df['close'].iloc[-1],
+                            'current_bar': True,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Wedge-specific information
+                            'channel_age': result.get('channel_age'),
+                            'channel_direction': result.get('channel_direction'),
+                            'channel_slope': result.get('channel_slope'),
+                            'percent_growth_per_bar': result.get('percent_growth_per_bar'),
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
+                            'atr_ok': result.get('atr_ok'),
+                            'window_size': result.get('window_size'),
+                            'entry_idx': result.get('entry_idx'),
+                            'left_idx': result.get('left_idx'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")  
+                        
             # Handle sma50_breakout strategy
             elif strategy == 'sma50_breakout':
                 from custom_strategies import detect_sma50_breakout
@@ -691,6 +894,13 @@ class UnifiedScanner:
                 if len(df) > 50:  # Need enough data for 50SMA
                     detected, result = detect_sma50_breakout(df, use_pre_breakout=False, check_bar=-2)
                     if detected:
+                        
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-2], 
+                            df['low'].iloc[-2], 
+                            df['close'].iloc[-2]
+                        )
+                        
                         results[strategy] = {
                             'symbol': symbol,
                             'direction': result.get('direction'),
@@ -710,6 +920,8 @@ class UnifiedScanner:
                             'atr_threshold_distance': result.get('atr_threshold_distance'),
                             'close_off_low': result.get('close_off_low'),
                             'bar_range': result.get('bar_range'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
                         }
                         logging.info(f"{strategy} detected for {symbol} (last closed bar)")
             
@@ -717,6 +929,13 @@ class UnifiedScanner:
                 if len(df) > 51:  # Need one more bar for current analysis
                     detected, result = detect_sma50_breakout(df, use_pre_breakout=False, check_bar=-1)
                     if detected:
+                        
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-1], 
+                            df['low'].iloc[-1], 
+                            df['close'].iloc[-1]
+                        )
+                        
                         results[strategy] = {
                             'symbol': symbol,
                             'direction': result.get('direction'),
@@ -736,6 +955,8 @@ class UnifiedScanner:
                             'atr_threshold_distance': result.get('atr_threshold_distance'),
                             'close_off_low': result.get('close_off_low'),
                             'bar_range': result.get('bar_range'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
             
@@ -764,7 +985,13 @@ class UnifiedScanner:
                     volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
                     volume_mean = df['volume'].rolling(7).mean().iloc[-1]
                     volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
-                    
+                    bar_idx = -1
+                    close_indicator, close_pos_pct = get_close_position_indicator(
+                        df['high'].iloc[bar_idx], 
+                        df['low'].iloc[bar_idx], 
+                        df['close'].iloc[bar_idx]
+                    )
+                
                     results[strategy] = {
                         'symbol': symbol,
                         'direction': breakout_result.get('direction'),
@@ -780,6 +1007,8 @@ class UnifiedScanner:
                         'extreme_volume': cf_result_curr.get('extreme_volume', False),
                         'extreme_spread': cf_result_curr.get('extreme_spread', False),
                         'breakout_type': 'both' if (cb_detected_curr and chb_detected_curr) else 'channel_breakout' if chb_detected_curr else 'consolidation_breakout',
+                        'close_position_indicator': close_indicator,
+                        'close_position_pct': close_pos_pct,
                     }
                     logging.info(f"{strategy} detected for {symbol} (current bar)")
                 
@@ -795,6 +1024,12 @@ class UnifiedScanner:
                     volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
                     volume_mean = df['volume'].rolling(7).mean().iloc[-2]
                     volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
+                    bar_idx = -2
+                    close_indicator, close_pos_pct = get_close_position_indicator(
+                        df['high'].iloc[bar_idx], 
+                        df['low'].iloc[bar_idx], 
+                        df['close'].iloc[bar_idx]
+                    )
                     
                     results[strategy] = {
                         'symbol': symbol,
@@ -811,6 +1046,8 @@ class UnifiedScanner:
                         'extreme_volume': cf_result_prev.get('extreme_volume', False),
                         'extreme_spread': cf_result_prev.get('extreme_spread', False),
                         'breakout_type': 'both' if (cb_detected_prev and chb_detected_prev) else 'channel_breakout' if chb_detected_prev else 'consolidation_breakout',
+                        'close_position_indicator': close_indicator,
+                        'close_position_pct': close_pos_pct,
                     }
                     logging.info(f"{strategy} detected for {symbol} (last closed bar)")            
                 

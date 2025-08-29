@@ -30,7 +30,7 @@ def get_params():
         'v2_macro_short_lookback': 7,
         'v2_macro_medium_lookback': 13,
         'v2_macro_long_lookback': 23,
-        'v2_macro_percentile': 10.0,
+        'v2_macro_percentile': 15.0,
         
         # Breakout Close parameters
         'use_breakout_close': False,

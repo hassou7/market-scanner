@@ -11,6 +11,8 @@ This module provides various pattern detection strategies including:
 - Consolidation pattern detection
 - Consolidation breakout detection
 - Channel breakout detection
+- Wedge breakout detection
+- 50sma breakout
 """
 
 # Import all strategy detection functions
@@ -21,6 +23,7 @@ from .confluence import detect_confluence
 from .consolidation import detect_consolidation
 from .consolidation_breakout import detect_consolidation_breakout
 from .channel_breakout import detect_channel_breakout
+from .wedge_breakout import detect_wedge_breakout
 from .sma50_breakout import detect_sma50_breakout
 
 # Export all functions for easy import
@@ -32,5 +35,6 @@ __all__ = [
     'detect_consolidation',
     'detect_consolidation_breakout',
     'detect_channel_breakout',
+    'detect_wedge_breakout',
     'detect_sma50_breakout'
 ]

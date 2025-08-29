@@ -1,338 +1,329 @@
 """
-Confluence Strategy - Custom Pattern Detection (Updated to match Pine Script v5)
+Confluence Strategy - Custom Pattern Detection (Pine v5 aligned, bullish + bearish)
 
-This strategy detects confluence signals based on Volume, Spread, and Momentum analysis.
-It combines three different analytical approaches to identify high-probability trading opportunities.
+Detects confluence signals from Volume, Spread, and Momentum.
+- Fixes '&' precedence errors
+- Keeps all arrays as Series aligned to df.index
+- Uses safe division to avoid NaNs/Inf from zero ranges
+- Normalizes WMA/NaN handling across bull & bear
 """
 
 import pandas as pd
 import numpy as np
 from datetime import datetime
 
-def wma(series, period):
-    """Calculate Weighted Moving Average"""
-    weights = np.arange(1, period + 1)
-    return series.rolling(period).apply(lambda x: np.dot(x, weights) / weights.sum(), raw=True)
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────────────────
 
-def detect_confluence(df, doji_threshold=5.0, ctx_len=7, range_floor=0.10, 
-                     len_fast=7, len_mid=13, len_slow=21, check_bar=-1):
+def wma(series: pd.Series, period: int) -> pd.Series:
+    """Weighted Moving Average returning a Series aligned to input index."""
+    s = pd.Series(series)
+    if period is None or period <= 0:
+        return s * np.nan
+    weights = np.arange(1, period + 1, dtype=float)
+    return s.rolling(period).apply(lambda x: np.dot(x, weights) / weights.sum(), raw=True)
+
+def _safe_div(num: pd.Series, den: pd.Series, fill: float = 0.0) -> pd.Series:
+    out = num / den
+    return out.replace([np.inf, -np.inf], np.nan).fillna(fill)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────────────────────────
+
+def detect_confluence(
+    df,
+    doji_threshold: float = 5.0,
+    ctx_len: int = 7,
+    range_floor: float = 0.10,
+    len_fast: int = 7,
+    len_mid: int = 13,
+    len_slow: int = 21,
+    check_bar: int = -1,
+    is_bullish: bool = True
+):
     """
-    Detect confluence signals based on Volume, Spread, and Momentum analysis
-    Updated to match Pine Script v5 implementation exactly
-    
-    Parameters:
-    df : pandas.DataFrame
-        DataFrame with OHLCV data
-    doji_threshold : float
-        Doji threshold percentage (default: 5.0)
-    ctx_len : int
-        Context bars for range calculation (default: 7)
-    range_floor : float
-        Range floor value 0-1 (default: 0.10)
-    len_fast : int
-        WMA fast period (default: 7)
-    len_mid : int
-        WMA mid period (default: 13)
-    len_slow : int
-        WMA slow period (default: 21)
-    check_bar : int
-        Which bar to check (-1 for current, -2 for last closed)
-    
-    Returns:
-    tuple: (bool, dict) - (detected, result_data)
+    Detect confluence signals based on Volume, Spread, and Momentum analysis.
+    Returns: (detected: bool, result: dict)
     """
-    
-    if df is None or len(df) < max(len_slow, ctx_len, 21) + 2:
+
+    # Basic guards & normalization
+    if df is None:
         return False, {}
-    
-    # Convert to DataFrame if needed
-    df = pd.DataFrame(df) if not isinstance(df, pd.DataFrame) else df.copy()
-    
-    # Ensure all required columns exist
-    required_cols = ['open', 'high', 'low', 'close', 'volume']
+
+    df = pd.DataFrame(df).copy()
+    required_cols = ["open", "high", "low", "close", "volume"]
     for col in required_cols:
         if col not in df.columns:
             df[col] = np.nan
-    
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    # OHLCV DATA
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    
-    curr_open = df['open']
-    curr_high = df['high']
-    curr_low = df['low']
-    curr_close = df['close']
-    prev_close = df['close'].shift(1)
-    prev_high = df['high'].shift(1)
-    prev_low = df['low'].shift(1)
-    curr_volume = df['volume']
-    curr_range = curr_high - curr_low
-    prev_range = df['high'].shift(1) - df['low'].shift(1)
-    
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    # VOLUME ANALYSIS
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    
-    # VSA Direction Logic
-    close_change_pct = np.abs(curr_close - prev_close) / np.maximum(curr_close, prev_close) * 100
-    is_doji_like = close_change_pct <= doji_threshold
-    
-    # VSA Classification
-    up_bar_vsa = pd.Series(False, index=df.index)
-    down_bar_vsa = pd.Series(False, index=df.index)
-    
-    # For doji-like bars
-    upper_shadow = curr_high - curr_close
-    lower_shadow = curr_close - curr_low
+
+    # Need enough bars for context & WMA(21)
+    min_bars = max(len_slow, ctx_len, 21) + 2
+    if len(df) < min_bars:
+        return False, {}
+
+    # Shorthand series (keep as Series)
+    o = df["open"]
+    h = df["high"]
+    l = df["low"]
+    c = df["close"]
+    v = df["volume"]
+
+    pc = c.shift(1)
+    ph = h.shift(1)
+    pl = l.shift(1)
+
+    rng = h - l
+    prng = ph - pl
+
+    # ── VOLUME / VSA ───────────────────────────────────────────────────────────
+    close_change_pct = _safe_div((c - pc).abs(), pd.concat([c, pc], axis=1).max(axis=1), 0.0) * 100.0
+    is_doji_like = close_change_pct <= float(doji_threshold)
+
+    upper_shadow = h - c
+    lower_shadow = c - l
     doji_up = lower_shadow > upper_shadow
     doji_down = upper_shadow > lower_shadow
-    
-    # For normal bars
-    is_up_intention = curr_close > prev_close
-    is_down_intention = curr_close < prev_close
-    
-    # Up intention logic
-    close_progress = curr_close - prev_close
-    potential_progress = curr_high - prev_close
-    normal_up = (close_progress >= potential_progress * 0.5) & is_up_intention
-    
-    # Down intention logic
-    close_decline = prev_close - curr_close
-    potential_decline = prev_close - curr_low
-    normal_down = (close_decline >= potential_decline * 0.5) & is_down_intention
-    
-    # Combine VSA logic
-    up_bar_vsa = np.where(is_doji_like, doji_up, normal_up)
-    down_bar_vsa = np.where(is_doji_like, doji_down, 
-                           np.where(is_up_intention, ~normal_up, 
-                                   np.where(is_down_intention, normal_down, False)))
-    
-    # Volume Moving Averages and Standard Deviation
-    vol_sma7 = curr_volume.rolling(7).mean()
-    vol_sma13 = curr_volume.rolling(13).mean()
-    vol_sma21 = curr_volume.rolling(21).mean()
-    vol_stdv21 = curr_volume.rolling(21).std()
-    
-    # Track volumes for same directional moves (simplified Python implementation)
-    local_relative_high_vol = pd.Series(False, index=df.index)
-    broader_relative_high_vol = pd.Series(False, index=df.index)
+
+    is_up_intention = c > pc
+    is_down_intention = c < pc
+
+    close_progress     = c - pc
+    potential_progress = h - pc
+    normal_up = (close_progress >= 0.5 * potential_progress) & is_up_intention
+
+    close_decline      = pc - c
+    potential_decline  = pc - l
+    normal_down = (close_decline >= 0.5 * potential_decline) & is_down_intention
+
+    up_bar_vsa = pd.Series(
+        np.where(is_doji_like, doji_up, normal_up),
+        index=df.index, dtype=bool
+    )
+    down_bar_vsa = pd.Series(
+        np.where(
+            is_doji_like, doji_down,
+            np.where(is_up_intention, ~normal_up,
+                     np.where(is_down_intention, normal_down, False))
+        ),
+        index=df.index, dtype=bool
+    )
+
+    vol_sma7  = v.rolling(7).mean()
+    vol_sma13 = v.rolling(13).mean()
+    vol_sma21 = v.rolling(21).mean()
+    vol_std21 = v.rolling(21).std()
+
+    local_rel_high = pd.Series(False, index=df.index)
+    broad_rel_high = pd.Series(False, index=df.index)
     serious_volume = pd.Series(False, index=df.index)
-    
+
     for i in range(1, len(df)):
-        # Local relative volume
-        if up_bar_vsa[i] and i > 0:
-            prev_up_vol = curr_volume.iloc[i-1] if up_bar_vsa[i-1] else 0
-            local_relative_high_vol.iloc[i] = curr_volume.iloc[i] > prev_up_vol
-        elif down_bar_vsa[i] and i > 0:
-            prev_down_vol = curr_volume.iloc[i-1] if down_bar_vsa[i-1] else 0
-            local_relative_high_vol.iloc[i] = curr_volume.iloc[i] > prev_down_vol
-        
-        # Broader relative volume (using 3-period average)
+        # local relative vs same-direction previous bar
+        if up_bar_vsa.iloc[i]:
+            prev_up_vol = v.iloc[i-1] if up_bar_vsa.iloc[i-1] else 0
+            local_rel_high.iloc[i] = v.iloc[i] > prev_up_vol
+        elif down_bar_vsa.iloc[i]:
+            prev_dn_vol = v.iloc[i-1] if down_bar_vsa.iloc[i-1] else 0
+            local_rel_high.iloc[i] = v.iloc[i] > prev_dn_vol
+
+        # 3-bar recent same-direction average
         if i >= 3:
-            if up_bar_vsa[i]:
-                recent_vols = [curr_volume.iloc[j] for j in range(max(0, i-3), i) if up_bar_vsa[j]]
-                if recent_vols:
-                    avg_vol = np.mean(recent_vols)
-                    broader_relative_high_vol.iloc[i] = curr_volume.iloc[i] > avg_vol
-            elif down_bar_vsa[i]:
-                recent_vols = [curr_volume.iloc[j] for j in range(max(0, i-3), i) if down_bar_vsa[j]]
-                if recent_vols:
-                    avg_vol = np.mean(recent_vols)
-                    broader_relative_high_vol.iloc[i] = curr_volume.iloc[i] > avg_vol
-            
-            # Serious volume logic
-            if broader_relative_high_vol.iloc[i]:
-                if up_bar_vsa[i]:
-                    # Find last down volume
+            if up_bar_vsa.iloc[i]:
+                recent = [v.iloc[j] for j in range(max(0, i-3), i) if up_bar_vsa.iloc[j]]
+                if recent:
+                    broad_rel_high.iloc[i] = v.iloc[i] > np.mean(recent)
+            elif down_bar_vsa.iloc[i]:
+                recent = [v.iloc[j] for j in range(max(0, i-3), i) if down_bar_vsa.iloc[j]]
+                if recent:
+                    broad_rel_high.iloc[i] = v.iloc[i] > np.mean(recent)
+
+            # serious vol: current vs last opposite-direction bar
+            if broad_rel_high.iloc[i]:
+                if up_bar_vsa.iloc[i]:
                     for j in range(i-1, -1, -1):
-                        if down_bar_vsa[j]:
-                            serious_volume.iloc[i] = curr_volume.iloc[i] > curr_volume.iloc[j]
+                        if down_bar_vsa.iloc[j]:
+                            serious_volume.iloc[i] = v.iloc[i] > v.iloc[j]
                             break
-                elif down_bar_vsa[i]:
-                    # Find last up volume
+                else:
                     for j in range(i-1, -1, -1):
-                        if up_bar_vsa[j]:
-                            serious_volume.iloc[i] = curr_volume.iloc[i] > curr_volume.iloc[j]
+                        if up_bar_vsa.iloc[j]:
+                            serious_volume.iloc[i] = v.iloc[i] > v.iloc[j]
                             break
-    
-    # Volume Classifications
-    absolute_high_vol = (curr_volume > vol_sma7) & (curr_volume > vol_sma13) & (curr_volume > vol_sma21)
-    
-    # Extreme volume
-    extreme_volume = (curr_volume > (vol_sma21 + 3.0 * vol_stdv21)) & ((curr_volume / vol_sma21) > 3)
-    
-    # High volume definition
-    high_volume = (serious_volume | absolute_high_vol | broader_relative_high_vol | local_relative_high_vol) #& ~extreme_volume
-    
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    # SPREAD ANALYSIS
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    
-    spread = curr_range
-    
-    # Close position in bar
-    closePosition = (curr_close - curr_low) / curr_range
-    isCloseInUpperhigh = closePosition > 0.7
-    
-    # Weighted moving averages for spread
-    wma7_spread = wma(spread, 7)
-    wma13_spread = wma(spread, 13)
-    wma21_spread = wma(spread, 21)
-    
-    # Spread Breakout Logic
+
+    absolute_high_vol = (v > vol_sma7) & (v > vol_sma13) & (v > vol_sma21)
+    extreme_volume = (v > (vol_sma21 + 3.0 * vol_std21)) & (_safe_div(v, vol_sma21, 0) > 3)
+    high_volume = (serious_volume | absolute_high_vol | broad_rel_high | local_rel_high)  # optionally & ~extreme_volume
+
+    # ── SPREAD ─────────────────────────────────────────────────────────────────
     tol = 0.95
-    
-    # Check if WMAs exist (not na) and if spread is above each existing WMA
-    above_wma7_spread = spread > (tol * wma7_spread)
-    above_wma13_spread = spread > (tol * wma13_spread)
-    above_wma21_spread = spread > (tol * wma21_spread)
-    
-    # Handle NaN values (if WMA doesn't exist, consider condition as True)
-    above_wma7_spread = above_wma7_spread.fillna(True)
-    above_wma13_spread = above_wma13_spread.fillna(True)
-    above_wma21_spread = above_wma21_spread.fillna(True)
-    
-    # Combine WMA conditions
-    above_all_wmas_spread = above_wma7_spread & above_wma13_spread & above_wma21_spread
-    
-    spread_wakeup = isCloseInUpperhigh & above_all_wmas_spread
-    spread_breakout = spread_wakeup & (spread == spread.rolling(3).max())
-    
-    # Compute extreme spread (same pattern as extreme volume)
-    spread_sma21 = spread.rolling(21).mean()
-    spread_stdv21 = spread.rolling(21).std()
-    
-    # Extreme spread - using same approach as extreme volume
-    extreme_spread = (spread > (spread_sma21 + 2.0 * spread_stdv21)) & ((spread / spread_sma21) > 2)
-    
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    # MOMENTUM ANALYSIS (Updated to match Pine Script exactly)
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    
-    # ❶ CONTEXT RANGE (last N bars) - Updated logic
-    # Find the bar with the highest range in the lookback period
-    highest_range_idx = 0
-    highest_range = 0.0
-    
-    # Calculate context range for each bar
-    ctxHi = pd.Series(index=df.index, dtype=float)
-    ctxLo = pd.Series(index=df.index, dtype=float)
-    ctxRng = pd.Series(index=df.index, dtype=float)
-    
+    wma7_spread  = wma(rng, 7)
+    wma13_spread = wma(rng, 13)
+    wma21_spread = wma(rng, 21)
+
+    above_wma7_spread  = (rng > tol * wma7_spread).fillna(True)
+    above_wma13_spread = (rng > tol * wma13_spread).fillna(True)
+    above_wma21_spread = (rng > tol * wma21_spread).fillna(True)
+    above_all_wmas_spread = (above_wma7_spread & above_wma13_spread & above_wma21_spread)
+
+    close_pos_bull = _safe_div((c - l), rng, 0.0)
+    bull_spread_wakeup = (close_pos_bull > 0.7) & above_all_wmas_spread
+    bull_spread_breakout = bull_spread_wakeup & (rng == rng.rolling(3).max())
+
+    close_pos_bear = _safe_div((h - c), rng, 0.0)
+    bear_spread_wakeup = (close_pos_bear > 0.7) & above_all_wmas_spread
+    bear_spread_breakout = bear_spread_wakeup & (rng == rng.rolling(3).max())
+
+    spread_sma21 = rng.rolling(21).mean()
+    spread_std21 = rng.rolling(21).std()
+    extreme_spread = (rng > (spread_sma21 + 2.0 * spread_std21)) & (_safe_div(rng, spread_sma21, 0) > 2)
+
+    # ── MOMENTUM ───────────────────────────────────────────────────────────────
+    # Context range anchored from the highest-range bar in the last ctx_len bars
+    ctxHi = pd.Series(np.nan, index=df.index, dtype=float)
+    ctxLo = pd.Series(np.nan, index=df.index, dtype=float)
+    ctxRng = pd.Series(np.nan, index=df.index, dtype=float)
+
     for idx in range(ctx_len, len(df)):
-        # Reset for each bar
         highest_range = 0.0
         highest_range_idx = 0
-        
-        # Find highest range in lookback period
         for i in range(1, ctx_len + 1):
-            if idx - i >= 0:
-                range_val = curr_range.iloc[idx - i]
-                if range_val > highest_range:
-                    highest_range = range_val
-                    highest_range_idx = i
-        
-        # Initialize context range with fallback values
-        ctx_hi = prev_high.iloc[idx-ctx_len:idx].max()  # Default highest high of previous ctx_len bars
-        ctx_lo = prev_low.iloc[idx-ctx_len:idx].min()   # Default lowest low of previous ctx_len bars
-        
-        # Adjust context range starting from the highest-range bar
-        if highest_range_idx > 0 and highest_range_idx <= ctx_len:
-            range_start = max(0, idx - ctx_len + highest_range_idx - 1)
-            ctx_hi = curr_high.iloc[range_start:idx+1].max()
-            ctx_lo = curr_low.iloc[range_start:idx+1].min()
-        
+            rv = rng.iloc[idx - i]
+            if rv > highest_range:
+                highest_range = rv
+                highest_range_idx = i
+
+        ctx_hi = ph.iloc[idx - ctx_len: idx].max()
+        ctx_lo = pl.iloc[idx - ctx_len: idx].min()
+
+        if 0 < highest_range_idx <= ctx_len:
+            start = max(0, idx - ctx_len + highest_range_idx - 1)
+            ctx_hi = h.iloc[start: idx + 1].max()
+            ctx_lo = l.iloc[start: idx + 1].min()
+
         ctxHi.iloc[idx] = ctx_hi
         ctxLo.iloc[idx] = ctx_lo
         ctxRng.iloc[idx] = ctx_hi - ctx_lo
-    
-    # ❂ RANGE COMPARISON FACTOR
-    range_factor = np.where(ctxRng > 0, np.maximum(curr_range / ctxRng, range_floor), range_floor)
-    
-    # ❸ POSITIONAL TERMS (Updated to match Pine Script exactly)
-    pos_current_global = np.where(ctxRng > 0, 
-                                 np.power(2 * (curr_close - (ctxHi + ctxLo) / 2) / ctxRng, 2), 
-                                 0)
-    pos_current_local = np.power((curr_close - curr_low) / curr_range, 2)
-    
-    # New: Previous bar positional term
-    centered_prev_pos = np.where(prev_range > 0, 
-                                (curr_close - (prev_high + prev_low) / 2) / prev_range, 
-                                0)
+
+    # Range factor (floored)
+    range_factor = pd.Series(
+        np.where(ctxRng > 0, np.maximum(_safe_div(rng, ctxRng, 0.0), float(range_floor)), float(range_floor)),
+        index=df.index
+    )
+
+    # Positional terms (bull)
+    pos_current_global = pd.Series(
+        np.where(ctxRng > 0,
+                 np.power(_safe_div(2 * (c - (ctxHi + ctxLo) / 2.0), ctxRng, 0.0), 2),
+                 0.0),
+        index=df.index
+    )
+    pos_current_local = np.power(_safe_div((c - l), rng, 0.0), 2)
+
+    centered_prev_pos = pd.Series(
+        np.where(prng > 0, _safe_div((c - (ph + pl) / 2.0), prng, 0.0), 0.0),
+        index=df.index
+    )
     pos_previous_local = 1 + 0.5 * np.sqrt(np.abs(centered_prev_pos)) * np.sign(centered_prev_pos)
-    
-    # ❹ FINAL SCORE (Updated formula)
-    score = range_factor * pos_current_global * pos_current_local * pos_previous_local
-    
-    # WMA CALCULATIONS FOR MOMENTUM
-    wma_fast = wma(pd.Series(score, index=df.index), len_fast)
-    wma_mid = wma(pd.Series(score, index=df.index), len_mid)
-    wma_slow = wma(pd.Series(score, index=df.index), len_slow)
-    
-    # Momentum Breakout Logic
-    is_orange = curr_close > prev_close
-    above_wma7_momentum = score > wma_fast
-    above_wma13_momentum = score > wma_mid
-    above_wma21_momentum = pd.Series(score > wma_slow).fillna(True)
-    
-    above_all_wmas_momentum = above_wma7_momentum & above_wma13_momentum & above_wma21_momentum
+
+    score = (range_factor * pos_current_global * pos_current_local * pos_previous_local).astype(float)
+
+    # WMAs for momentum (bull)
+    wma_fast = wma(score, len_fast)
+    wma_mid  = wma(score, len_mid)
+    wma_slow = wma(score, len_slow)
+
+    # Normalize NaN policy: missing WMA counts as pass (like Pine warmup)
+    above_wma7_mom  = (score > wma_fast) | wma_fast.isna()
+    above_wma13_mom = (score > wma_mid)  | wma_mid.isna()
+    above_wma21_mom = (score > wma_slow) | wma_slow.isna()
+    above_all_wmas_momentum = (above_wma7_mom & above_wma13_mom & above_wma21_mom).fillna(False)
+
+    is_orange = c > pc
     momentum_breakout = is_orange & above_all_wmas_momentum
-    
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    # CONFLUENCE SIGNAL
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    
-    confluence = high_volume & spread_breakout & momentum_breakout
-    
-    # Check the specified bar
-    idx = check_bar
-    if idx < 0:
-        idx = len(df) + idx  # Convert negative index to positive
-    if not 0 <= idx < len(df):
+
+    # Mirror for bear
+    bear_pos_current_local = np.power(_safe_div((h - c), rng, 0.0), 2)
+    bear_pos_previous_local = 1 - 0.5 * np.sqrt(np.abs(centered_prev_pos)) * np.sign(centered_prev_pos)
+    bear_score = (range_factor * pos_current_global * bear_pos_current_local * bear_pos_previous_local).astype(float)
+
+    bear_wma_fast = wma(bear_score, len_fast)
+    bear_wma_mid  = wma(bear_score, len_mid)
+    bear_wma_slow = wma(bear_score, len_slow)
+
+    bear_above_fast = (bear_score > bear_wma_fast) | bear_wma_fast.isna()
+    bear_above_mid  = (bear_score > bear_wma_mid)  | bear_wma_mid.isna()
+    bear_above_slow = (bear_score > bear_wma_slow) | bear_wma_slow.isna()
+    bear_above_all  = (bear_above_fast & bear_above_mid & bear_above_slow).fillna(False)
+
+    is_red = c < pc
+    bear_momentum_breakout = is_red & bear_above_all
+
+    # ── CONFLUENCE ─────────────────────────────────────────────────────────────
+    bull_confluence = (high_volume & bull_spread_breakout & momentum_breakout).fillna(False)
+    bear_confluence = (high_volume & bear_spread_breakout & bear_momentum_breakout).fillna(False)
+
+    confluence = bull_confluence if is_bullish else bear_confluence
+    spread_breakout_sel = bull_spread_breakout if is_bullish else bear_spread_breakout
+    momentum_breakout_sel = momentum_breakout if is_bullish else bear_momentum_breakout
+    score_sel = score if is_bullish else bear_score
+    direction_base = "Up" if is_bullish else "Down"
+
+    # Resolve check_bar
+    idx = check_bar if check_bar >= 0 else (len(df) + check_bar)
+    if not (0 <= idx < len(df)):
         return False, {}
-    
-    if not confluence.iloc[idx]:
-        return False, {}
-    
-    # Calculate additional metrics for the detected bar
-    bar_idx = df.index[idx]
-    volume_mean = curr_volume.rolling(7).mean().iloc[idx]
-    volume_ratio = curr_volume.iloc[idx] / volume_mean if volume_mean > 0 else 0
-    volume_usd = curr_volume.iloc[idx] * curr_close.iloc[idx]
-    bar_range = curr_range.iloc[idx]
-    close_off_low = (curr_close.iloc[idx] - curr_low.iloc[idx]) / bar_range * 100 if bar_range > 0 else 0
-    
-    # Component analysis for detailed results
-    high_vol_component = high_volume.iloc[idx]
-    spread_component = spread_breakout.iloc[idx]
-    momentum_component = momentum_breakout.iloc[idx]
-    extreme_volume_component = bool(extreme_volume.iloc[idx]) if hasattr(extreme_volume.iloc[idx], '__bool__') else extreme_volume.iloc[idx]
-    extreme_spread_component = bool(extreme_spread.iloc[idx]) if hasattr(extreme_spread.iloc[idx], '__bool__') else extreme_spread.iloc[idx]
-    
-    # Fix momentum score extraction to avoid FutureWarning
-    if isinstance(score, pd.Series):
-        momentum_score_value = score.iloc[idx]
-    elif hasattr(score, '__len__'):
-        momentum_score_value = score[idx]
+
+    detected = bool(confluence.iloc[idx])
+
+    # Check for engulfing reversal
+    is_engulfing_reversal = False
+    if idx > 0:
+        if is_bullish:
+            is_engulfing_reversal = bool(bear_confluence.iloc[idx-1]) and bool(bull_confluence.iloc[idx])
+        else:
+            is_engulfing_reversal = bool(bull_confluence.iloc[idx-1]) and bool(bear_confluence.iloc[idx])
+
+    direction = f"{direction_base} Reversal" if is_engulfing_reversal else direction_base
+
+    # Metrics snapshot
+    vol_mean7 = vol_sma7.iloc[idx]
+    volume_ratio = (v.iloc[idx] / vol_mean7) if (pd.notna(vol_mean7) and vol_mean7) else 0.0
+    volume_usd = v.iloc[idx] * c.iloc[idx]
+    bar_range = rng.iloc[idx]
+
+    if is_bullish:
+        close_off_low = _safe_div(pd.Series([c.iloc[idx] - l.iloc[idx]]), pd.Series([bar_range if pd.notna(bar_range) else np.nan]), 0.0).iloc[0] * 100.0
     else:
-        momentum_score_value = float(score)
-    
+        close_off_low = _safe_div(pd.Series([h.iloc[idx] - c.iloc[idx]]), pd.Series([bar_range if pd.notna(bar_range) else np.nan]), 0.0).iloc[0] * 100.0
+
+    momentum_score_value = float(score_sel.iloc[idx])
+
     result = {
-        'timestamp': bar_idx,
-        'close_price': curr_close.iloc[idx],
-        'volume': curr_volume.iloc[idx],
-        'volume_usd': volume_usd,
-        'volume_ratio': volume_ratio,
-        'close_off_low': close_off_low,
-        'bar_range': bar_range,
-        'momentum_score': momentum_score_value,
-        'high_volume': high_vol_component,
-        'spread_breakout': spread_component,
-        'momentum_breakout': momentum_component,
-        'extreme_volume': extreme_volume_component,
-        'extreme_spread': extreme_spread_component,
-        'current_bar': check_bar == -1,
-        'date': bar_idx.strftime('%Y-%m-%d %H:%M:%S') if hasattr(bar_idx, 'strftime') else str(bar_idx)
+        "timestamp": df.index[idx],
+        "date": df.index[idx].strftime("%Y-%m-%d %H:%M:%S") if hasattr(df.index[idx], "strftime") else str(df.index[idx]),
+        "direction": direction,
+        "current_bar": (check_bar == -1),
+
+        "close_price": float(c.iloc[idx]),
+        "volume": float(v.iloc[idx]),
+        "volume_usd": float(volume_usd) if pd.notna(volume_usd) else 0.0,
+        "volume_ratio": float(volume_ratio),
+        "bar_range": float(bar_range) if pd.notna(bar_range) else 0.0,
+        "close_off_low": float(close_off_low),
+
+        "momentum_score": momentum_score_value,
+        "high_volume": bool(high_volume.iloc[idx]) if pd.notna(high_volume.iloc[idx]) else False,
+        "spread_breakout": bool(spread_breakout_sel.iloc[idx]) if pd.notna(spread_breakout_sel.iloc[idx]) else False,
+        "momentum_breakout": bool(momentum_breakout_sel.iloc[idx]) if pd.notna(momentum_breakout_sel.iloc[idx]) else False,
+        "extreme_volume": bool(extreme_volume.iloc[idx]) if pd.notna(extreme_volume.iloc[idx]) else False,
+        "extreme_spread": bool(extreme_spread.iloc[idx]) if pd.notna(extreme_spread.iloc[idx]) else False,
+
+        "is_engulfing_reversal": is_engulfing_reversal,
     }
-    
-    return True, result
+
+    if not detected:
+        result["reason"] = "not_confluence"
+
+    return detected, result

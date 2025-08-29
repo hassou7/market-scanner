@@ -1,18 +1,18 @@
-# custom_strategies/channel_breakout.py
+# custom_strategies/channel.py
 
 # min df number = 23 (for ATR etc.)
 
 import pandas as pd
 import numpy as np
 
-def detect_channel_breakout(
+def detect_channel(
     df: pd.DataFrame,
     check_bar: int = -1,
     use_log: bool = True,
     width_multiplier: float = 1.0
 ) -> tuple[bool, dict]:
     """
-    Detect if the specified bar is a breakout from diagonal consolidation channel.
+    Detect if the specified bar is part of an ongoing diagonal consolidation channel without breakout.
     
     Args:
         df: DataFrame with OHLC data
@@ -107,7 +107,7 @@ def detect_channel_breakout(
 
     is_breakout = np.zeros(n, dtype=bool)
     breakout_direction = np.full(n, 0)  # 1 upper, -1 lower, 0 none
-    channel_slope = np.full(n, np.nan)  # Slope at breakout
+    channel_slope = np.full(n, np.nan)  # Slope at breakout or ongoing
     in_channel_any = np.zeros(n, dtype=bool)
     channel_offset_newest = np.full(n, np.nan)
     channel_age_newest = np.zeros(n, dtype=int)
@@ -211,6 +211,10 @@ def detect_channel_breakout(
             entry_idx_new[i] = newest["start_idx"]
             left_idx_new[i] = newest["left_idx"]
             current_level_newest[i] = newest["level"]
+            # Compute current slope for ongoing channel
+            closes_log = np.log(newest["closes"]) if use_log else np.array(newest["closes"])
+            mslope, minter = compute_fit(closes_log)
+            channel_slope[i] = mslope
         else:
             in_channel_any[i] = False
             channel_age_newest[i] = 0
@@ -223,35 +227,36 @@ def detect_channel_breakout(
     if i_check < 0 or i_check >= n:
         return False, {"reason": "bad_check_bar"}
 
-    if breakout_direction[i_check] == 0:
-        return False, {"reason": "not_breakout", "timestamp": idx[i_check]}
+    if not in_channel_any[i_check]:
+        return False, {"reason": "no_channel", "timestamp": idx[i_check]}
 
-    # Use i_check-1 for channel info, with safety checks
-    prev_idx = max(0, i_check - 1)  # Avoid index error
-    ei = int(entry_idx_new[prev_idx]) if not np.isnan(entry_idx_new[prev_idx]) else None
-    li = int(left_idx_new[prev_idx]) if not np.isnan(left_idx_new[prev_idx]) else None
+    # It's an ongoing channel
+    ei = int(entry_idx_new[i_check]) if not np.isnan(entry_idx_new[i_check]) else None
+    li = int(left_idx_new[i_check]) if not np.isnan(left_idx_new[i_check]) else None
     channel_dir = "Upwards" if channel_slope[i_check] > 0 else "Downwards" if channel_slope[i_check] < 0 else "Horizontal"
-    g = (np.exp(channel_slope[i_check]) - 1) * 100 if use_log and not np.isnan(channel_slope[i_check]) else (channel_slope[i_check] / np.median(c[li:ei+1])) * 100 if not np.isnan(channel_slope[i_check]) else 0.0
+    # Find the newest active channel to get closes
+    newest = active[-1] if active else None
+    median_p = np.median(newest["closes"]) if newest else np.median(c[li:i_check+1]) if li is not None else 0.0
+    g = (np.exp(channel_slope[i_check]) - 1) * 100 if use_log and not np.isnan(channel_slope[i_check]) else (channel_slope[i_check] / median_p) * 100 if median_p != 0 and not np.isnan(channel_slope[i_check]) else 0.0
 
     res = {
         "timestamp": idx[i_check],
         "date": idx[i_check].strftime("%Y-%m-%d %H:%M:%S"),
-        "breakout": True,
-        "direction": "Up" if breakout_direction[i_check] == 1 else "Down",
-        "color": "#3ACF3F" if breakout_direction[i_check] == 1 else "#FF007F",
+        "ongoing_channel": True,
+        "channel_direction": channel_dir,
+        "color": "#3ACF3F" if channel_slope[i_check] > 0 else "#FF007F" if channel_slope[i_check] < 0 else "#808080",
         "current_bar": (i_check == n-1),
         "window_size": int(N),
         "entry_idx": ei, "entry_ts": idx[ei] if ei is not None else None,
         "left_idx": li, "left_ts": idx[li] if li is not None else None,
-        "channel_age": int(channel_age_newest[prev_idx]),
-        "channel_offset": float(channel_offset_newest[prev_idx]),
-        "channel_direction": channel_dir,
+        "channel_age": int(channel_age_newest[i_check]),
+        "channel_offset": float(channel_offset_newest[i_check]),
         "channel_slope": float(channel_slope[i_check]) if not np.isnan(channel_slope[i_check]) else 0.0,
         "percent_growth_per_bar": float(g),
         "bars_inside": bars_inside[i_check],
         "min_bars_inside_req": min_bars_inside,
         "height_pct": height_pct[i_check],
-        "max_height_pct_req": pct_levels[int(current_level_newest[prev_idx])] if current_level_newest[prev_idx] >= 0 else np.nan,
+        "max_height_pct_req": pct_levels[int(current_level_newest[i_check])] if current_level_newest[i_check] >= 0 else np.nan,
         "atr_ok": atr_ok[i_check]
     }
     return True, res
