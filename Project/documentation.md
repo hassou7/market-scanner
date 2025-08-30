@@ -21,7 +21,7 @@ A comprehensive market scanner for cryptocurrency exchanges that combines VSA (V
 
 ## Project Overview
 
-This project is a cryptocurrency market scanner designed to detect profitable trading opportunities across multiple exchanges and timeframes. It employs both traditional Volume Spread Analysis (VSA) techniques and custom pattern detection algorithms like volume surge, weak uptrend, pin down, confluence pattern detection, consolidation breakout detection, channel breakout detection, 50SMA breakout detection, wedge breakout detection, and hybrid breakout strategies.
+This project is a cryptocurrency market scanner designed to detect profitable trading opportunities across multiple exchanges and timeframes. It employs both traditional Volume Spread Analysis (VSA) techniques and custom pattern detection algorithms like volume surge, weak uptrend, pin down, confluence pattern detection, consolidation breakout detection, channel breakout detection, ongoing channel monitoring, 50SMA breakout detection, wedge breakout detection, and hybrid breakout strategies.
 
 The scanner supports multiple exchanges including Binance (spot and futures), Gate.io, KuCoin, MEXC, and Bybit. It can analyze various timeframes (1w, 3d, 2d, 1d, 4h) and send notifications via Telegram to multiple users. The system now features **parallel processing** for enhanced performance across multiple exchanges and timeframes, plus **SF (Seven Figures) integration** for enhanced KuCoin and MEXC weekly data access.
 
@@ -45,8 +45,9 @@ The scanner supports multiple exchanges including Binance (spot and futures), Ga
   - **Confluence Signal** - multi-factor confirmation system
   - **Consolidation Breakout** - breakout from consolidation patterns
   - **Channel Breakout** - breakout from diagonal channel patterns
+  - **Channel** - ongoing diagonal channel monitoring
   - **50SMA Breakout** - clean moving average breakout detection
-  - **Wedge Breakout** - diagonal consolidation wedge breakout detection (NEW)
+  - **Wedge Breakout** - diagonal consolidation wedge breakout detection
   - **HBS Breakout** - hybrid consolidation + confluence strategy
 - **Telegram Integration**: Send alerts to multiple users and channels
 - **Modular Architecture**: Easy to add new exchanges and strategies
@@ -79,9 +80,10 @@ project/
 │   ├── confluence.py           # Confluence signal detection
 │   ├── consolidation.py        # Ongoing Consolidation box detection
 │   ├── consolidation_breakout.py  # Consolidation breakout detection
+│   ├── channel.py              # Ongoing Channel detection
 │   ├── channel_breakout.py     # Channel breakout detection
 │   ├── sma50_breakout.py       # 50SMA breakout detection
-│   └── wedge_breakout.py       # NEW: Wedge breakout detection
+│   └── wedge_breakout.py       # Wedge breakout detection
 ├── exchanges/                  # Exchange API clients
 │   ├── __init__.py
 │   ├── base_client.py          # Base exchange client class
@@ -160,6 +162,7 @@ STRATEGY_CHANNELS = {
     "test_bar": "weakening_trend",
     "consolidation": "start_trend",
     "consolidation_breakout": "start_trend",
+    "channel": "start_trend",
     "channel_breakout": "start_trend",
     "sma50_breakout": "start_trend",
     "wedge_breakout": "start_trend",
@@ -197,7 +200,7 @@ from run_parallel_scanner import sf_exchanges_1w
 # Scan SF exchanges for weekly data
 result = await run_parallel_exchanges(
     timeframe="1w",                    # Must be 1w for SF exchanges
-    strategies=["wedge_breakout", "sma50_breakout", "loaded_bar", "breakout_bar"],
+    strategies=["channel", "wedge_breakout", "sma50_breakout", "loaded_bar", "breakout_bar"],
     exchanges=sf_exchanges_1w,         # SF KuCoin and MEXC
     users=["default"],
     send_telegram=True,
@@ -211,7 +214,7 @@ result = await run_parallel_exchanges(
 # When scanning 1w with no exchanges specified, SF exchanges are auto-selected
 result = await run_parallel_multi_timeframes_all_exchanges(
     timeframes=["1w"],              # Automatically uses sf_exchanges_1w
-    strategies=["wedge_breakout", "sma50_breakout", "confluence"],
+    strategies=["channel", "wedge_breakout", "sma50_breakout", "confluence"],
     exchanges=None,                 # Auto-selects SF exchanges
     users=["default"],
     send_telegram=True
@@ -230,7 +233,7 @@ from run_parallel_scanner import run_parallel_exchanges
 # Run scan across all exchanges in parallel
 result = await run_parallel_exchanges(
     timeframe="1d",
-    strategies=["breakout_bar", "confluence", "wedge_breakout", "sma50_breakout"],
+    strategies=["channel", "breakout_bar", "confluence", "wedge_breakout", "sma50_breakout"],
     exchanges=["binance_spot", "bybit_spot", "kucoin_spot"],
     users=["default"],
     send_telegram=True,
@@ -246,7 +249,7 @@ from run_parallel_scanner import run_parallel_multi_timeframes_all_exchanges
 # Run scan across multiple timeframes and exchanges
 result = await run_parallel_multi_timeframes_all_exchanges(
     timeframes=["3d", "4d", "1w"],
-    strategies=["confluence", "consolidation_breakout", "wedge_breakout", "sma50_breakout"],
+    strategies=["channel", "confluence", "consolidation_breakout", "wedge_breakout", "sma50_breakout"],
     exchanges=None,  # Use all available exchanges
     users=["default"],
     send_telegram=True,
@@ -257,11 +260,11 @@ result = await run_parallel_multi_timeframes_all_exchanges(
 ### Command Line Usage
 
 ```bash
-# Run parallel scan with wedge breakout strategy
-python run_parallel_scanner.py 1w "wedge_breakout,loaded_bar" "sf_kucoin_1w,sf_mexc_1w" "default" true
+# Run channel monitoring with breakout strategies
+python run_parallel_scanner.py 1w "channel,channel_breakout,wedge_breakout" "sf_kucoin_1w,sf_mexc_1w" "default" true
 
-# Run multiple strategies including wedge breakout
-python run_parallel_scanner.py 1d "wedge_breakout,confluence,consolidation_breakout" "binance_spot,bybit_spot" "default" true
+# Run multiple strategies including channel monitoring
+python run_parallel_scanner.py 1d "channel,wedge_breakout,confluence,consolidation_breakout" "binance_spot,bybit_spot" "default" true
 ```
 
 ### Traditional Jupyter Notebook Usage
@@ -272,20 +275,54 @@ Start Jupyter and open the `vsa_and_custom_scanner.ipynb` notebook:
 jupyter notebook
 ```
 
-#### Custom Strategy Scanning with Wedge Breakout
+#### Custom Strategy Scanning with Channel Monitoring
 
 ```python
 await run_custom_scan(
     exchange='binance_futures',
     timeframe='1w',
-    strategies=['wedge_breakout', 'sma50_breakout', 'consolidation_breakout', 'channel_breakout', 'hbs_breakout'],
+    strategies=['channel', 'channel_breakout', 'wedge_breakout', 'sma50_breakout', 'consolidation_breakout', 'hbs_breakout'],
     send_telegram=True
 )
 ```
 
 ## VSA Strategies
 
-[VSA strategies section remains the same as original...]
+Volume Spread Analysis (VSA) is based on the relationship between volume, spread (range), and close position within the bar. The scanner implements six key VSA patterns:
+
+### Breakout Bar
+Detects bars that suggest the start of a new trend with:
+- High volume (above average)
+- Wide spread (large range)
+- Close in upper portion of range (for bullish breakouts)
+
+### Stop Bar
+Identifies bars that suggest trend exhaustion:
+- Very high volume
+- Wide spread but close in opposite direction of trend
+- Often marks temporary or permanent trend reversal
+
+### Reversal Bar
+Spots potential trend reversal bars:
+- High volume
+- Wide spread
+- Close opposite to the prevailing trend direction
+
+### Start Bar
+Detects early trend initiation:
+- Above average volume
+- Good spread
+- Close in direction of emerging trend
+
+### Loaded Bar
+Identifies accumulation/distribution:
+- High volume with narrow spread
+- Suggests professional money entering quietly
+
+### Test Bar
+Spots support/resistance testing:
+- Low volume on revisit to previous support/resistance
+- Narrow spread suggests lack of selling/buying pressure
 
 ## Custom Strategies
 
@@ -317,9 +354,14 @@ A sophisticated diagonal consolidation wedge breakout detection system that iden
 **Signal Requirements:**
 - Minimum data requirement: 23 bars (for ATR calculation)
 - Rolling window size: 9 bars for wedge detection
-- Minimum bars inside wedge: 9 bars for validity
+- Minimum wedge age: 9 bars total from left edge to current bar
 - ATR period: 14 bars with 7-period smoothing
 - Height percentage thresholds: 40%, 35%, 25%, 15% for quality levels
+
+**Parameter Relationships:**
+- `N = 9`: Rolling window size for wedge trend line fitting
+- `min_bars_inside = 9`: Minimum total wedge age requirement (left edge to current bar)
+- Wedge age = current_bar_index - left_edge_index + 1 ≥ 9 bars
 
 **Telegram Notifications Include:**
 - Breakout direction (Up/Down) with appropriate color coding
@@ -357,8 +399,8 @@ detect_wedge_breakout(
 **Configuration Options:**
 ```python
 # Internal parameters (customizable in implementation)
-N = 9                      # Rolling window size
-min_bars_inside = 9        # Minimum bars required inside wedge
+N = 9                      # Rolling window size for wedge trend line fitting
+min_bars_inside = 9        # Minimum wedge age requirement (left edge to current bar)
 pct_levels = [40.0, 35.0, 25.0, 15.0]  # Tightness thresholds
 atr_len = 14               # ATR calculation period
 atr_sma = 7                # ATR smoothing period
@@ -421,6 +463,93 @@ detect_sma50_breakout(
     check_bar=-1             # Bar to analyze (-1 current, -2 last closed)
 )
 ```
+
+### Channel (Ongoing Diagonal Consolidation)
+
+An ongoing diagonal channel detection system that identifies when price is actively trading within converging or diverging diagonal trend lines, providing continuous monitoring of channel patterns before breakouts occur.
+
+**Detection Logic:**
+1. **Rolling Channel Formation**: Uses a 7-bar rolling window to identify diagonal consolidation channels
+2. **Theil-Sen Regression**: Robust statistical fitting for upper and lower channel boundaries  
+3. **Progressive Tightening**: Monitors channels that tighten through multiple percentage levels (40%, 35%, 25%, 15%)
+4. **ATR Volatility Filter**: Ensures channel formation during appropriate volatility conditions (ATR < 1.5x smoothed ATR)
+5. **Ongoing Monitoring**: Tracks active channels until breakout or dissolution
+
+**Key Components:**
+- **Rolling Window Analysis**: 7-bar rolling window for channel detection
+- **Theil-Sen Regression**: Robust statistical fitting resistant to outliers
+- **Log Scale Processing**: Optional logarithmic scaling for percentage-based analysis
+- **ATR Filter**: 14-period ATR with 7-period smoothing for volatility confirmation
+- **Multi-Level Tightening**: Progressive threshold detection at 40%, 35%, 25%, 15%
+
+**Advanced Features:**
+- **Dynamic Channel Tracking**: Real-time channel monitoring with age tracking
+- **Channel Direction Classification**: Identifies upward, downward, or horizontal trending channels
+- **Slope Analysis**: Measures channel direction and percentage growth per bar
+- **Minimum Bars Inside**: Configurable requirement for channel validity (default: 4 bars)
+- **Automatic Tightening**: Channels automatically tighten as price action consolidates further
+
+**Signal Requirements:**
+- Minimum data requirement: 14 bars (for ATR calculation)
+- Rolling window size: 7 bars (N) for channel detection and trend line fitting
+- Minimum channel age: 7 bars total (min_bars_inside) from left edge to current bar
+- ATR period: 14 bars with 7-period rolling smoothing of ATR values
+- Height percentage thresholds: 40%, 35%, 25%, 15% for tightness levels
+
+**Parameter Relationships:**
+- `N = 7`: Rolling window size for fitting diagonal trend lines
+- `min_bars_inside = 7`: Minimum total channel age requirement (left edge to current bar)
+- Channel age = current_bar_index - left_edge_index + 1 ≥ 7 bars
+
+**Telegram Notifications Include:**
+- Channel status (Ongoing Channel) with direction color coding
+- Channel direction (Upwards/Downwards/Horizontal) 
+- Channel slope and percentage growth per bar
+- Channel age and formation period
+- Height percentage and current tightness level
+- Entry and left boundary timestamps
+- ATR volatility confirmation status
+- Close position within current bar range
+
+**Usage Recommendations:**
+- Monitor consolidation patterns before breakouts occur
+- Best used on higher timeframes (1d, 1w) for reliable channel formations
+- Ideal for anticipating breakout opportunities and position sizing
+- Suitable for entry timing strategies and risk management
+- Works well in combination with breakout confirmation strategies
+
+**Technical Implementation:**
+- **Log Scale Processing**: Optional logarithmic transformation for percentage-based analysis
+- **Robust Statistical Fitting**: Theil-Sen regression resistant to outliers  
+- **Real-time Monitoring**: Continuous channel tracking with automatic updates
+- **Memory Efficiency**: Smart channel management with automatic cleanup
+- **Vectorized Calculations**: Optimized for performance across large datasets
+
+**Parameters:**
+```python
+detect_channel(
+    df,
+    check_bar=-1,           # Bar to analyze (-1 current, -2 last closed)
+    use_log=True,           # Use logarithmic scale for fits
+    width_multiplier=1.0    # Multiplier to scale channel width
+)
+```
+
+**Configuration Options:**
+```python
+# Internal parameters (customizable in implementation)
+N = 7                      # Rolling window size for trend line fitting
+min_bars_inside = 7        # Minimum channel age requirement (left edge to current bar)
+pct_levels = [40.0, 35.0, 25.0, 15.0]  # Tightness thresholds
+atr_len = 14               # ATR calculation period
+atr_sma = 7                # ATR smoothing period  
+atr_k = 1.5                # ATR volatility filter multiplier (higher for diagonal)
+```
+
+**Difference from Channel Breakout:**
+- **Channel Strategy**: Detects ongoing consolidation within diagonal channels (monitoring)
+- **Channel Breakout Strategy**: Detects when price breaks out of established diagonal channels (execution)
+- Use together: Channel for monitoring and anticipation, Channel Breakout for execution signals
 
 ### Volume Surge
 
@@ -501,6 +630,12 @@ detect_confluence(
 
 An advanced breakout detection system that identifies when price breaks out of established consolidation patterns with channel confirmation. This strategy combines consolidation box detection with trend channel analysis to provide high-probability breakout signals.
 
+**Pattern Age Requirements:**
+- Uses horizontal consolidation boxes rather than diagonal channels
+- Minimum consolidation age: Configurable (typically 5-10 bars)
+- Box formation: Identifies horizontal support/resistance levels
+- Age calculation: Time from box formation start to breakout moment
+
 ### Channel Breakout
 
 An advanced diagonal channel breakout detection system that identifies when price breaks out of established diagonal consolidation channels using Theil-Sen regression for robust trend fitting.
@@ -535,7 +670,7 @@ sf_exchanges_1w = ["sf_kucoin_1w", "sf_mexc_1w"]
 # Scan SF exchanges specifically
 result = await run_parallel_exchanges(
     timeframe="1w",                    # Required for SF exchanges
-    strategies=["wedge_breakout", "sma50_breakout", "loaded_bar", "breakout_bar"],
+    strategies=["channel", "wedge_breakout", "sma50_breakout", "loaded_bar", "breakout_bar"],
     exchanges=sf_exchanges_1w,         # SF KuCoin and MEXC
     users=["default"],
     send_telegram=True,
@@ -550,7 +685,7 @@ weekly_exchanges = ["binance_spot", "bybit_spot", "gateio_spot"] + sf_exchanges_
 
 result = await run_parallel_exchanges(
     timeframe="1w",
-    strategies=["wedge_breakout", "sma50_breakout", "confluence", "hbs_breakout"],
+    strategies=["channel", "wedge_breakout", "sma50_breakout", "confluence", "hbs_breakout"],
     exchanges=weekly_exchanges,
     users=["default"],
     send_telegram=True
@@ -610,7 +745,7 @@ all_exchanges = futures_exchanges + spot_exchanges + sf_exchanges_1w
 # Auto-selects appropriate exchanges based on timeframe
 result = await run_parallel_multi_timeframes_all_exchanges(
     timeframes=["1w"],              # Auto-selects sf_exchanges_1w
-    strategies=["wedge_breakout", "sma50_breakout"],
+    strategies=["channel", "wedge_breakout", "sma50_breakout"],
     exchanges=None                  # Smart selection
 )
 ```
@@ -622,7 +757,7 @@ The system supports sending notifications to multiple users:
 ```python
 await run_parallel_exchanges(
     timeframe='1w',
-    strategies=['wedge_breakout', 'confluence'],
+    strategies=['channel', 'confluence'],
     exchanges=sf_exchanges_1w,
     users=["default", "user1", "trader2"],
     send_telegram=True
@@ -663,45 +798,51 @@ class SFNewExchangeClient(BaseExchangeClient):
 
 ## Adding New Strategies
 
-### Adding the Wedge Breakout Strategy
+### Adding the Channel Strategy
 
-1. **Create Strategy File**: `custom_strategies/wedge_breakout.py` (already provided)
+1. **Create Strategy File**: `custom_strategies/channel.py` (already provided)
 2. **Update Imports**: Add to `custom_strategies/__init__.py`
    ```python
-   from .wedge_breakout import detect_wedge_breakout
+   from .channel import detect_channel
    ```
 3. **Scanner Integration**: Add strategy handling in `scanner/main.py`
    ```python
-   elif strategy == "wedge_breakout":
-       from custom_strategies import detect_wedge_breakout
-       detected, result = detect_wedge_breakout(df, check_bar=check_bar)
+   elif strategy == "channel":
+       from custom_strategies import detect_channel
+       detected, result = detect_channel(df, check_bar=check_bar)
    ```
 4. **Configuration**: Add Telegram channel mapping in `utils/config.py`
    ```python
    STRATEGY_CHANNELS = {
        # ... existing strategies ...
-       "wedge_breakout": "start_trend",
+       "channel": "start_trend",
    }
    ```
 
 ### Strategy Combination Examples
 
-#### Wedge + 50SMA Breakout
+#### Channel Monitoring + Breakout Execution
 ```python
-# Combine wedge breakout with 50SMA for complementary signals
-strategies = ["wedge_breakout", "sma50_breakout"]
+# Monitor ongoing channels and catch breakouts
+strategies = ["channel", "channel_breakout", "wedge_breakout"]
+```
+
+#### Complete Pattern Recognition Suite
+```python  
+# Comprehensive pattern detection including ongoing monitoring
+strategies = ["channel", "consolidation", "channel_breakout", "consolidation_breakout", "wedge_breakout"]
 ```
 
 #### Multi-Strategy Confluence
 ```python
 # Run multiple complementary strategies
-strategies = ["wedge_breakout", "consolidation_breakout", "confluence"]
+strategies = ["channel", "wedge_breakout", "consolidation_breakout", "confluence"]
 ```
 
 #### Advanced Pattern Recognition
 ```python
 # Comprehensive pattern detection suite
-strategies = ["wedge_breakout", "channel_breakout", "consolidation_breakout", "hbs_breakout"]
+strategies = ["channel", "wedge_breakout", "channel_breakout", "consolidation_breakout", "hbs_breakout"]
 ```
 
 ## Troubleshooting
@@ -718,7 +859,13 @@ strategies = ["wedge_breakout", "channel_breakout", "consolidation_breakout", "h
    - Check network connectivity to SF endpoints
    - Monitor SF service rate limits
 
-3. **Wedge Breakout Issues**:
+3. **Channel Strategy Issues**:
+   - Ensure sufficient historical data (23+ bars minimum)
+   - Check rolling window configuration (7 bars default)
+   - Verify ATR calculation requirements (14-period ATR + 7-period smoothing)
+   - Monitor tightness level thresholds
+
+4. **Wedge Breakout Issues**:
    - Ensure sufficient historical data (23+ bars minimum)
    - Check rolling window configuration (9 bars default)
    - Verify ATR calculation requirements (14-period ATR + 7-period smoothing)
@@ -730,13 +877,13 @@ strategies = ["wedge_breakout", "channel_breakout", "consolidation_breakout", "h
    - Some strategies may have conflicting requirements
    - Verify data requirements for all selected strategies
    - Check volume threshold compatibility
-   - Monitor minimum bar requirements (wedge: 23, 50SMA: 57)
+   - Monitor minimum bar requirements (channel: 23, wedge: 23, 50SMA: 57)
 
 2. **Performance Impact**:
    - Multiple strategies increase processing time
    - Consider strategy prioritization for large scans
    - Monitor memory usage with complex combinations
-   - Wedge breakout adds computational overhead due to rolling regression
+   - Channel and wedge breakout add computational overhead due to rolling regression
   
 3. **Confluence Direction Issues**:
    - Current scanner only processes bullish confluence signals
@@ -754,22 +901,66 @@ logging.getLogger('exchanges.sf_kucoin_client').setLevel(logging.DEBUG)
 logging.getLogger('exchanges.sf_mexc_client').setLevel(logging.DEBUG)
 
 # Enable strategy-specific logging
+logging.getLogger('custom_strategies.channel').setLevel(logging.DEBUG)
 logging.getLogger('custom_strategies.wedge_breakout').setLevel(logging.DEBUG)
 logging.getLogger('custom_strategies.sma50_breakout').setLevel(logging.DEBUG)
 ```
+
+### Data Requirements Summary
+
+| Strategy | Minimum Bars | Reason |
+|----------|--------------|--------|
+| Channel | 14 | ATR calculation (14 bars) + rolling window (7 bars) overlap |
+| Wedge Breakout | 23 | Complex wedge fitting + ATR validation requires more data |
+| Channel Breakout | 23 | Diagonal channel breakout detection with ATR confirmation |
+| 50SMA Breakout | 57 | 50SMA calculation (50) + ATR (7) |
+| Confluence | 21 | WMA calculations (21 slow period) |
+| VSA Strategies | Variable | Typically 14-21 bars for indicators |
+| Volume Surge | 10 | Rolling statistics calculation |
+| Consolidation | 15 | Box detection and validation |
+
+### Pattern Age vs Rolling Window Explanation
+
+For strategies that detect ongoing patterns (Channel, Consolidation, Wedge), there are two important concepts:
+
+**Rolling Window (N parameter):**
+- Size of the moving window used for trend line fitting
+- Channel: N=7 (fits trend lines using 7 consecutive bars)
+- Wedge: N=9 (fits wedge lines using 9 consecutive bars)
+
+**Minimum Pattern Age (min_bars_inside parameter):**
+- Total age requirement from pattern start to current bar
+- Channel: min_bars_inside=7 (channel must span ≥7 bars total)
+- Wedge: min_bars_inside=9 (wedge must span ≥9 bars total)
+- Calculated as: current_bar_index - left_edge_index + 1
+
+**Key Difference:**
+- Rolling window: Technical requirement for fitting algorithms
+- Pattern age: Business logic requirement for pattern validity
+- Pattern age ≥ Rolling window (you can't have a 7-bar pattern with a 9-bar fitting window)
 
 ---
 
 ## Recent Updates
 
-### Version 2.5 Features (NEW)
+### Version 2.6 Features (NEW)
+
+- **Channel Strategy**: Ongoing diagonal channel monitoring for consolidation patterns
+- **Enhanced Pattern Detection**: Real-time monitoring of diagonal consolidation channels
+- **Progressive Channel Tracking**: Multi-level tightening detection (40%, 35%, 25%, 15%)
+- **ATR-Based Validation**: Volatility filtering for channel formation quality
+- **Direction Classification**: Upward, downward, and horizontal trending channel identification
+- **Dynamic Channel Management**: Automatic tightening and breakout detection
+- **Complementary Strategy Design**: Works alongside Channel Breakout for complete pattern coverage
+
+### Version 2.5 Features
 
 - **Enhanced Confluence Strategy**: Bidirectional bullish/bearish confluence detection
 - **Engulfing Reversal Recognition**: Automatic detection of trend reversal patterns
 - **VSA-Based Volume Direction**: Direction-aware volume analysis using Volume Spread Analysis principles
 - **Dual Momentum Scoring**: Independent bullish and bearish momentum calculations with mirrored positioning logic
 - **Improved Signal Prioritization**: Current bar and reversal pattern prioritization in scanner
-- **Enhanced Telegram Notifications**: Reversal pattern indicators with "⚡Engulfing Reversal!" alerts
+- **Enhanced Telegram Notifications**: Reversal pattern indicators with "Engulfing Reversal!" alerts
 - **Robust NaN Handling**: Improved early-bar processing with safe WMA warmup periods
 - **Series Alignment Optimization**: Maintained proper pandas indexing throughout all calculations
   

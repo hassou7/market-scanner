@@ -7,7 +7,7 @@ from telegram.ext import Application
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout, detect_sma50_breakout, detect_wedge_breakout
+from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout, detect_sma50_breakout, detect_wedge_breakout, detect_channel
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
 import os
@@ -57,6 +57,7 @@ class UnifiedScanner:
             'confluence': 'Confluence Signal',
             'consolidation': 'Consolidation Pattern',
             'consolidation_breakout': 'Consolidation Breakout Pattern',
+            'channel': 'Ongoing Channel Pattern',
             'channel_breakout': 'Channel Breakout Pattern',
             'wedge_breakout': 'Wedge Breakout Pattern',
             'sma50_breakout': '50SMA Breakout',
@@ -208,7 +209,26 @@ class UnifiedScanner:
                         f"Volume Ratio: {volume_ratio:,.2f}x\n"
                         f"{volume_period} Volume: ${volume_usd:,.2f}\n"
                         f"Box Age: {result.get('box_age', 0)} bars\n"
-                        f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'channel':
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    channel_direction = result.get('channel_direction', 'Unknown')
+                    color_indicator = "🟢" if channel_direction == "Upwards" else "🔴" if channel_direction == "Downwards" else "⚪"
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Status: {color_indicator} Ongoing Channel\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Channel Direction: {channel_direction}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Channel Age: {result.get('channel_age', 0)} bars\n"
+                        f"Slope: {result.get('percent_growth_per_bar', 0):+.2f}% per bar\n"
                         f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
                         f"{'='*30}\n"
                     )
@@ -230,7 +250,6 @@ class UnifiedScanner:
                         f"{volume_period} Volume: ${volume_usd:,.2f}\n"
                         f"Channel Age: {result.get('channel_age', 0)} bars\n"
                         f"Channel Slope: {result.get('channel_slope', 0):,.4f}\n"
-                        f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
                         f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
                         f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
                         f"{'='*30}\n"
@@ -721,7 +740,95 @@ class UnifiedScanner:
                             'close_position_pct': close_pos_pct,
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
-
+                        
+            # Handle channel strategy (ongoing channels)
+            elif strategy == 'channel':
+                from custom_strategies import detect_channel
+                
+                # Check last closed bar
+                if len(df) > 23:  # Minimum required data
+                    detected, result = detect_channel(df, check_bar=-2)
+                    if detected:
+                        # Calculate volume info
+                        volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-2]
+                        volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-2], 
+                            df['low'].iloc[-2], 
+                            df['close'].iloc[-2]
+                        )
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result.get('timestamp', df.index[-2]),
+                            'close': df['close'].iloc[-2],
+                            'current_bar': False,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Channel-specific information
+                            'ongoing_channel': result.get('ongoing_channel'),
+                            'channel_age': result.get('channel_age'),
+                            'channel_direction': result.get('channel_direction'),
+                            'channel_slope': result.get('channel_slope'),
+                            'percent_growth_per_bar': result.get('percent_growth_per_bar'),
+                            'channel_offset': result.get('channel_offset'),
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
+                            'atr_ok': result.get('atr_ok'),
+                            'window_size': result.get('window_size'),
+                            'entry_idx': result.get('entry_idx'),
+                            'left_idx': result.get('left_idx'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
+                            'color': result.get('color')
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+            
+                # Check current bar
+                if len(df) > 24:  # Need one more bar for current analysis
+                    detected, result = detect_channel(df, check_bar=-1)
+                    if detected:
+                        # Calculate volume info
+                        volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-1]
+                        volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-1], 
+                            df['low'].iloc[-1], 
+                            df['close'].iloc[-1]
+                        )
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result.get('timestamp', df.index[-1]),
+                            'close': df['close'].iloc[-1],
+                            'current_bar': True,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Channel-specific information
+                            'ongoing_channel': result.get('ongoing_channel'),
+                            'channel_age': result.get('channel_age'),
+                            'channel_direction': result.get('channel_direction'),
+                            'channel_slope': result.get('channel_slope'),
+                            'percent_growth_per_bar': result.get('percent_growth_per_bar'),
+                            'channel_offset': result.get('channel_offset'),
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
+                            'atr_ok': result.get('atr_ok'),
+                            'window_size': result.get('window_size'),
+                            'entry_idx': result.get('entry_idx'),
+                            'left_idx': result.get('left_idx'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
+                            'color': result.get('color')
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+                        
             # Handle channel_breakout strategy
             elif strategy == 'channel_breakout':
                 from custom_strategies import detect_channel_breakout

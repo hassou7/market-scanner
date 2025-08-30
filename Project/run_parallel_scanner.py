@@ -16,6 +16,26 @@ import pandas as pd
 import nest_asyncio
 from datetime import datetime
 
+def filter_csv_columns(df):
+    """Remove technical columns that shouldn't be in CSV exports"""
+    columns_to_exclude = [
+        'bars_inside',
+        'min_bars_inside_req', 
+        'window_size',
+        'entry_idx',
+        'left_idx',
+        'close_position_indicator',
+        'color',
+        'atr_ok'
+    ]
+    
+    # Remove columns that exist in the dataframe
+    columns_to_drop = [col for col in columns_to_exclude if col in df.columns]
+    if columns_to_drop:
+        df = df.drop(columns=columns_to_drop)
+    
+    return df
+
 # Check if running in Jupyter Notebook
 def is_jupyter():
     try:
@@ -176,6 +196,7 @@ async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["
         for strategy, res in all_results.items():
             if res:
                 df = pd.DataFrame(res)
+                df = filter_csv_columns(df)
                 filename = f"{strategy}_{timeframe}_{timestamp}.csv"
                 df.to_csv(filename, index=False)
                 logging.info(f"Saved {strategy} results to {filename}")
@@ -306,6 +327,7 @@ async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, ex
         for strategy, res in all_results.items():
             if res:
                 df = pd.DataFrame(res)
+                df = filter_csv_columns(df)
                 filename = f"{strategy}_multi_{timestamp}.csv"
                 df.to_csv(filename, index=False)
                 logging.info(f"Saved {strategy} results to {filename}")

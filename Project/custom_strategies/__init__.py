@@ -21,6 +21,7 @@ from .weak_uptrend import detect_weak_uptrend
 from .pin_down import detect_pin_down
 from .confluence import detect_confluence
 from .consolidation import detect_consolidation
+from .channel import detect_channel
 from .consolidation_breakout import detect_consolidation_breakout
 from .channel_breakout import detect_channel_breakout
 from .wedge_breakout import detect_wedge_breakout
@@ -33,6 +34,7 @@ __all__ = [
     'detect_pin_down',
     'detect_confluence',
     'detect_consolidation',
+    'detect_channel',
     'detect_consolidation_breakout',
     'detect_channel_breakout',
     'detect_wedge_breakout',

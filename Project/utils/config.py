@@ -30,6 +30,7 @@ STRATEGY_CHANNELS = {
     "test_bar": "weakening_trend",
     "consolidation": "start_trend",
     "consolidation_breakout": "start_trend",
+    "channel": "start_trend",
     "channel_breakout": "start_trend",
     "wedge_breakout": "start_trend",
     "sma50_breakout": "start_trend",
