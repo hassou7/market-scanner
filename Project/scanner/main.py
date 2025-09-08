@@ -216,7 +216,7 @@ class UnifiedScanner:
                     volume_usd = result.get('volume_usd', 0)
                     volume_ratio = result.get('volume_ratio', 0)
                     channel_direction = result.get('channel_direction', 'Unknown')
-                    color_indicator = "🟢" if channel_direction == "Upwards" else "🔴" if channel_direction == "Downwards" else "⚪"
+                    color_indicator = "🔴" if channel_direction == "Upwards" else "🟢" if channel_direction == "Downwards" else "⚪"
                     
                     signal_message = (
                         f"Symbol: {symbol}\n"
@@ -664,6 +664,86 @@ class UnifiedScanner:
                     reversal_note = " (Reversal!)" if is_reversal else ""
                     bar_note = " (current bar)" if top_result['bar_type'] == 'current' else " (last closed bar)"
                     logging.info(f"{strategy} detected for {symbol}{bar_note}{reversal_note}")
+
+            # Handle consolidation pattern strategy (ongoing consolidation, not breakout)
+            elif strategy == 'consolidation':
+                from custom_strategies import detect_consolidation
+                
+                # Check last closed bar for ongoing consolidation
+                if len(df) > 23:  # Minimum required data
+                    # For ongoing consolidation, we want to detect when price is INSIDE the consolidation
+                    # We'll modify the detect_consolidation function call to check for ongoing patterns
+                    detected, result = detect_consolidation(df, check_bar=-2)
+                    if detected and not result.get('breakout', False):  # Only if it's NOT a breakout
+                        # Calculate volume info
+                        volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-2]
+                        volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-2], 
+                            df['low'].iloc[-2], 
+                            df['close'].iloc[-2]
+                        )
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result.get('timestamp', df.index[-2]),
+                            'close': df['close'].iloc[-2],
+                            'current_bar': False,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Consolidation-specific information
+                            'box_hi': result.get('box_hi'),
+                            'box_lo': result.get('box_lo'),
+                            'box_mid': result.get('box_mid'),
+                            'box_age': result.get('box_age'),
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
+                            'atr_ok': result.get('atr_ok'),
+                            'window_size': result.get('window_size'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+            
+                # Check current bar for ongoing consolidation
+                if len(df) > 24:  # Need one more bar for current analysis
+                    detected, result = detect_consolidation(df, check_bar=-1)
+                    if detected and not result.get('breakout', False):  # Only if it's NOT a breakout
+                        # Calculate volume info
+                        volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
+                        volume_mean = df['volume'].rolling(7).mean().iloc[-1]
+                        volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
+                        close_indicator, close_pos_pct = get_close_position_indicator(
+                            df['high'].iloc[-1], 
+                            df['low'].iloc[-1], 
+                            df['close'].iloc[-1]
+                        )
+                        
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'date': result.get('timestamp', df.index[-1]),
+                            'close': df['close'].iloc[-1],
+                            'current_bar': True,
+                            'volume_usd': volume_usd,
+                            'volume_ratio': volume_ratio,
+                            # Consolidation-specific information
+                            'box_hi': result.get('box_hi'),
+                            'box_lo': result.get('box_lo'),
+                            'box_mid': result.get('box_mid'),
+                            'box_age': result.get('box_age'),
+                            'bars_inside': result.get('bars_inside'),
+                            'min_bars_inside_req': result.get('min_bars_inside_req'),
+                            'height_pct': result.get('height_pct'),
+                            'max_height_pct_req': result.get('max_height_pct_req'),
+                            'atr_ok': result.get('atr_ok'),
+                            'window_size': result.get('window_size'),
+                            'close_position_indicator': close_indicator,
+                            'close_position_pct': close_pos_pct,
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
                         
             # Handle consolidation breakout strategy
             elif strategy == 'consolidation_breakout':                

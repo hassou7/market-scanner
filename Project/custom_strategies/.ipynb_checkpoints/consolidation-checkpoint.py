@@ -8,17 +8,15 @@ import numpy as np
 def detect_consolidation(
     df: pd.DataFrame,
     check_bar: int = -1,
-    use_log: bool = True,
-    require_box_breakout: bool = False
+    use_log: bool = True
 ) -> tuple[bool, dict]:
     """
-    Detect if the specified bar is a breakout from consolidation box and channel.
+    Detect if the specified bar is inside an ongoing consolidation box and channel.
     
     Args:
         df: DataFrame with OHLC data
         check_bar: Which bar to check (-1 for current, -2 for last closed)
         use_log: Whether to use log scale for fit
-        require_box_breakout: If True, require breakout from both box and channel; if False, channel breakout sufficient
     
     Returns:
         tuple: (detected: bool, result: dict)
@@ -26,14 +24,15 @@ def detect_consolidation(
     N = 7
     min_bars_inside = 4
     pct_levels = [35.0, 25.0, 15.0]
-    use_atr_filter = True
+    use_atr_filter = True  # Enabled to reduce false positives in high volatility periods
     atr_len = 14
     atr_sma = 7
     atr_k = 0.9
     dedupe_eps = 0.01
+    max_abs_rel_slope = 0.005  # Max absolute relative slope per bar (0.5%) to consider as consolidation
 
     if df is None or len(df) < max(N, atr_len + atr_sma) + 2:
-        return False, {}
+        return False, {"reason": "insufficient_data"}
 
     d = df.copy()
     for col in ("open","high","low","close"):
@@ -77,7 +76,28 @@ def detect_consolidation(
     # Compute potential level for each bar (tightest possible)
     potential_level = np.full(n, -1)
     for i in range(n):
-        if bars_inside[i] >= min_bars_inside and atr_ok[i]:
+        if i >= N-1 and bars_inside[i] >= min_bars_inside and atr_ok[i]:
+            lo_i = i - (N-1)
+            box_closes = c[lo_i:i+1]
+            box_length = len(box_closes)
+            if box_length >= 2:
+                if use_log:
+                    box_closes_log = np.log(box_closes)
+                else:
+                    box_closes_log = box_closes
+
+                # Theil-Sen fit to check slope
+                slopes = []
+                for j in range(box_length - 1):
+                    for k in range(j + 1, box_length):
+                        sl = (box_closes_log[k] - box_closes_log[j]) / (k - j)
+                        slopes.append(sl)
+                median_slope = np.median(slopes) if slopes else 0.0
+
+                # Skip if slope too steep
+                if abs(median_slope) > max_abs_rel_slope:
+                    continue
+
             for lvl in range(len(pct_levels)-1, -1, -1):
                 if height_pct[i] <= pct_levels[lvl]:
                     potential_level[i] = lvl
@@ -95,8 +115,6 @@ def detect_consolidation(
     active = []
     boxes = []
 
-    is_breakout = np.zeros(n, dtype=bool)
-    breakout_direction = np.full(n, 0)  # 1 upper, -1 lower, 0 none
     in_box_any = np.zeros(n, dtype=bool)
     box_hi_newest = np.full(n, np.nan); box_lo_newest = np.full(n, np.nan)
     box_age_newest = np.zeros(n, dtype=int)
@@ -146,6 +164,7 @@ def detect_consolidation(
             box_length = len(box_closes)
             channel_break = False
             channel_dir = 0
+            median_slope = 0.0
             if box_length >= 2:
                 if use_log:
                     box_closes_log = np.log(box_closes)
@@ -186,13 +205,14 @@ def detect_consolidation(
                     channel_break = True
                     channel_dir = -1
 
+            # Also check if current slope is still flat enough
+            if abs(median_slope) > max_abs_rel_slope:
+                channel_break = True  # Treat steep slope as break to avoid false positives in trends
+
             box_break = (c[i] > bx["hi"]) or (c[i] < bx["lo"])
 
-            # Set breakout if conditions met
-            if (require_box_breakout and box_break and channel_break) or (not require_box_breakout and channel_break):
-                breakout_direction[i] = channel_dir
-
-            if box_break:
+            # For ongoing consolidation, end if either box or channel break
+            if box_break or channel_break:
                 bx["end_idx"] = i; bx["end_ts"] = idx[i]
             else:
                 keep.append(bx)
@@ -218,33 +238,33 @@ def detect_consolidation(
     if i_check < 0 or i_check >= n:
         return False, {"reason": "bad_check_bar"}
 
-    if breakout_direction[i_check] == 0:
-        return False, {"reason": "not_breakout", "timestamp": idx[i_check]}
+    if not in_box_any[i_check]:
+        return False, {"reason": "not_in_consolidation", "timestamp": idx[i_check]}
 
-    # Use i_check-1 for box info, since at breakout, box is from previous
-    ei = int(entry_idx_new[i_check-1]) if not np.isnan(entry_idx_new[i_check-1]) else None
-    li = int(left_idx_new[i_check-1]) if not np.isnan(left_idx_new[i_check-1]) else None
+    # Get info from newest at i_check
+    ei = int(entry_idx_new[i_check]) if not np.isnan(entry_idx_new[i_check]) else None
+    li = int(left_idx_new[i_check]) if not np.isnan(left_idx_new[i_check]) else None
     res = {
         "timestamp": idx[i_check],
         "date": idx[i_check].strftime("%Y-%m-%d %H:%M:%S"),
-        "breakout": True,
-        "direction": "Up" if breakout_direction[i_check] == 1 else "Down",
-        "color": "#3ACF3F" if breakout_direction[i_check] == 1 else "#FF007F",
+        "consolidation": True,
         "current_bar": (i_check == n-1),
         "window_size": int(N),
         "entry_idx": ei, "entry_ts": (idx[ei] if ei is not None else None),
         "left_idx": li, "left_ts": (idx[li] if li is not None else None),
-        "box_age": int(box_age_newest[i_check-1]),
-        "box_hi": float(box_hi_newest[i_check-1]),
-        "box_lo": float(box_lo_newest[i_check-1]),
-        "box_mid": float((box_hi_newest[i_check-1] + box_lo_newest[i_check-1]) / 2.0),
-        "bars_inside": bars_inside[i_check-1],
+        "box_age": int(box_age_newest[i_check]),
+        "box_hi": float(box_hi_newest[i_check]),
+        "box_lo": float(box_lo_newest[i_check]),
+        "box_mid": float((box_hi_newest[i_check] + box_lo_newest[i_check]) / 2.0),
+        "bars_inside": bars_inside[i_check],
         "min_bars_inside_req": min_bars_inside,
-        "height_pct": height_pct[i_check-1],
-        "max_height_pct_req": pct_levels[current_level_newest[i_check-1]],
-        "atr_ok": atr_ok[i_check-1],
-        "range_high": range_high[i_check-1],
-        "range_low": range_low[i_check-1],
-        "range_mid": (range_high[i_check-1] + range_low[i_check-1]) / 2.0 if not np.isnan(range_high[i_check-1]) else np.nan
+        "height_pct": height_pct[i_check],
+        "max_height_pct_req": pct_levels[current_level_newest[i_check]],
+        "atr_ok": atr_ok[i_check],
+        "range_high": range_high[i_check],
+        "range_low": range_low[i_check],
+        "range_mid": (range_high[i_check] + range_low[i_check]) / 2.0 if not np.isnan(range_high[i_check]) else np.nan,
+        "current_close": float(c[i_check]),
+        "inside_range": True
     }
     return True, res

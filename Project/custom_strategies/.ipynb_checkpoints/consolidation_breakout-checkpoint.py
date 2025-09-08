@@ -33,7 +33,7 @@ def detect_consolidation_breakout(
     dedupe_eps = 0.01
 
     if df is None or len(df) < max(N, atr_len + atr_sma) + 2:
-        return False, {}
+        return False, {"reason": "insufficient_data"}
 
     d = df.copy()
     for col in ("open","high","low","close"):
@@ -158,20 +158,20 @@ def detect_consolidation_breakout(
                     for k in range(j + 1, box_length):
                         sl = (box_closes_log[k] - box_closes_log[j]) / (k - j)
                         slopes.append(sl)
-                median_slope = np.median(slopes)
+                median_slope = np.median(slopes) if slopes else 0.0
 
                 intercepts = []
                 for j in range(box_length):
                     inc = box_closes_log[j] - median_slope * j
                     intercepts.append(inc)
-                median_inter = np.median(intercepts)
+                median_inter = np.median(intercepts) if intercepts else 0.0
 
                 # Center for offset
                 mid_x = (box_length - 1) / 2.0
                 mid_fit = median_inter + median_slope * mid_x
                 center_price = np.exp(mid_fit) if use_log else mid_fit
                 box_height = bx["hi"] - bx["lo"]
-                offset = box_height / 2.0 / (center_price if use_log else 1.0)
+                offset = box_height / 2.0 / (center_price if center_price != 0 else 1.0)
                 intercept_upper = median_inter + offset
                 intercept_lower = median_inter - offset
 
@@ -192,7 +192,8 @@ def detect_consolidation_breakout(
             if (require_box_breakout and box_break and channel_break) or (not require_box_breakout and channel_break):
                 breakout_direction[i] = channel_dir
 
-            if box_break:
+            # End box on either break type for consistency (deactivates channel after breakout)
+            if box_break or channel_break:
                 bx["end_idx"] = i; bx["end_ts"] = idx[i]
             else:
                 keep.append(bx)

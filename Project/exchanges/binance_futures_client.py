@@ -37,11 +37,11 @@ class BinanceFuturesClient(BaseExchangeClient):
     def _get_fetch_limit(self):
         """Return the number of candles to fetch based on timeframe"""
         return {
-            '1w': 60,      # Weekly needs at least 60 bars for macro lookback
-            '4d': 160,     # 4d needs 160 daily bars to build 40+ 4d candles
-            '3d': 150,     # 3d needs 150 daily bars to build 50+ 3d candles
-            '2d': 120,     # 2d needs 120 daily bars to build 60+ 2d candles
-            '1d': 60,      # Daily needs at least 60 days for history
+            '1w': 100,      # Weekly needs at least 60 bars for macro lookback
+            '4d': 150,     # 4d needs 160 daily bars to build 40+ 4d candles
+            '3d': 200,     # 3d needs 150 daily bars to build 50+ 3d candles
+            '2d': 300,     # 2d needs 120 daily bars to build 60+ 2d candles
+            '1d': 600,      # Daily needs at least 60 days for history
             '4h': 200      # 4h needs more bars for analysis
         }[self.timeframe]
 
@@ -65,9 +65,12 @@ class BinanceFuturesClient(BaseExchangeClient):
             logging.error(f"Error fetching Binance futures symbols: {str(e)}")
             return []
 
-    async def fetch_klines(self, symbol: str):
+    async def fetch_klines(self, symbol: str, limit=None):
         """Fetch candlestick data from Binance futures market"""
         url = f"{self.base_url}/fapi/v1/klines"
+        
+        # Use provided limit or fall back to default
+        fetch_limit = limit if limit is not None else self.fetch_limit
         
         # Get the appropriate interval based on timeframe
         api_interval = self.interval_map[self.timeframe]
@@ -75,11 +78,16 @@ class BinanceFuturesClient(BaseExchangeClient):
         # For 2d, 3d, 4d timeframes, we need to fetch daily data and then aggregate
         if self.timeframe in ["2d", "3d", "4d"]:
             api_interval = "1d"
+            # For aggregated timeframes, we need more daily bars to create the requested number
+            if limit is not None:
+                # Multiply by the aggregation factor to get enough daily bars
+                aggregation_factors = {"2d": 2, "3d": 3, "4d": 4}
+                fetch_limit = limit * aggregation_factors[self.timeframe]
         
         params = {
             'symbol': symbol,
             'interval': api_interval,
-            'limit': self.fetch_limit
+            'limit': fetch_limit
         }
         
         try:
@@ -120,6 +128,11 @@ class BinanceFuturesClient(BaseExchangeClient):
                         df = self.aggregate_to_4d(df)
                     # For 1w and 1d, Binance provides native data
                     # For 4h, Binance provides native data
+                    
+                    # If a specific limit was requested and we have aggregated data,
+                    # return only the requested number of final candles
+                    if limit is not None and self.timeframe in ["2d", "3d", "4d"]:
+                        df = df.tail(limit)
                     
                     return df
                 else:

@@ -9,7 +9,7 @@ def detect_channel(
     df: pd.DataFrame,
     check_bar: int = -1,
     use_log: bool = True,
-    width_multiplier: float = 1.0
+    width_multiplier: float = 0.7
 ) -> tuple[bool, dict]:
     """
     Detect if the specified bar is part of an ongoing diagonal consolidation channel without breakout.
