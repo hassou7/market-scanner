@@ -9,137 +9,176 @@ import time
 from datetime import datetime, timedelta
 from .base_client import BaseExchangeClient
 
+
 class KucoinClient(BaseExchangeClient):
     """
-    KuCoin exchange API client for fetching market data
-    Updated with support for 1D, 2D, 3D, 4D, and 1W timeframes
-    
-    This class handles only the API interactions and data fetching functionality,
-    without any scanning or messaging logic.
+    KuCoin Spot API client for fetching market data (1d, 2d, 3d, 4d, 1w, 4h).
+
+    Notes:
+    - /api/v1/market/candles returns ≤1500 rows per call; 'limit' is ignored.
+    - Pagination is done with BOTH startAt and endAt (seconds) for reliability.
+    - Response order is newest -> oldest; we sort ascending before aggregating.
+    - We return a tz-naive DateTimeIndex to avoid tz-aware/naive mix elsewhere.
+    - Symbol format for KuCoin spot is 'BASE-QUOTE' (e.g., 'BTC-USDT').
     """
+
     def __init__(self, timeframe="1d"):
         self.base_url = "https://api.kucoin.com"
         self.batch_size = 20
-        self.request_delay = 0.2  # Slightly longer delay for KuCoin
+        self.request_delay = 0.2
         super().__init__(timeframe)
 
     def _get_interval_map(self):
-        """Map standard timeframes to KuCoin API specific intervals"""
+        """Map standard timeframes to KuCoin spot intervals."""
         return {
-            '1w': '1week',  # Weekly - KuCoin native support
-            '4d': '1day',   # 4-day - fetch daily and aggregate
-            '3d': '1day',   # 3-day - fetch daily and aggregate
-            '2d': '1day',   # 2-day - fetch daily and aggregate
-            '1d': '1day',   # Daily - KuCoin native support
-            '4h': '4hour'   # 4-hour - KuCoin native support
+            '1w': '1week',  # we'll still build Monday-based weeks from 1d below
+            '4d': '1day',
+            '3d': '1day',
+            '2d': '1day',
+            '1d': '1day',
+            '4h': '4hour'
         }
-    
+
     def _get_fetch_limit(self):
-        """Return the number of candles to fetch based on timeframe"""
+        # Kept for compatibility; paging is driven by _required_source_count.
         return {
-            '1w': 120,     # Weekly needs at least 60+ bars for macro lookback
-            '4d': 200,     # 4d needs 200 daily bars to build 50+ 4d candles
-            '3d': 180,     # 3d needs 180 daily bars to build 60+ 3d candles
-            '2d': 150,     # 2d needs 150 daily bars to build 75+ 2d candles
-            '1d': 80,      # Daily needs at least 80 days for history
-            '4h': 200      # 4h needs more bars
+            '1w': 360,
+            '4d': 360,
+            '3d': 360,
+            '2d': 360,
+            '1d': 360,
+            '4h': 60
         }[self.timeframe]
 
+    def _required_source_count(self, sma_len: int = 50, warmup: int = 10) -> int:
+        """
+        Minimum number of source (1d) candles to compute SMA(sma_len) on aggregated frames.
+        """
+        if self.timeframe in ('2d', '3d', '4d', '1w'):
+            mult = {'2d': 2, '3d': 3, '4d': 4, '1w': 7}[self.timeframe]
+            return (sma_len + warmup) * mult
+        return sma_len + warmup  # native frames (1d, 4h)
+
     async def get_all_spot_symbols(self):
-        """Fetch all USDT spot trading pairs from KuCoin"""
-        async with self.session.get(f"{self.base_url}/api/v1/symbols") as response:
-            data = await response.json()
+        """Fetch all active USDT spot trading pairs from KuCoin."""
+        url = f"{self.base_url}/api/v1/symbols"
+        try:
+            async with self.session.get(url) as response:
+                data = await response.json()
             if data.get('code') == '200000' and 'data' in data:
-                symbols = [item['symbol'] for item in data['data'] 
-                          if item.get('quoteCurrency') == self.quote_currency and 
-                          item.get('enableTrading', False)]
+                symbols = [
+                    item['symbol'] for item in data['data']
+                    if item.get('quoteCurrency') == self.quote_currency and item.get('enableTrading', False)
+                ]
                 return sorted(symbols)
-            else:
-                logging.error(f"Error fetching KuCoin spot symbols: {data}")
-                return []
+            logging.error(f"Error fetching KuCoin spot symbols: {data}")
+            return []
+        except Exception as e:
+            logging.error(f"Error fetching KuCoin spot symbols: {str(e)}")
+            return []
 
     async def fetch_klines(self, symbol: str):
-        """Fetch candlestick data from KuCoin spot market"""
+        """
+        Fetch candlestick data from KuCoin spot with robust time-based pagination.
+        Returns a tz-naive OHLCV DataFrame indexed by timestamps.
+        """
         url = f"{self.base_url}/api/v1/market/candles"
-        
-        # Set API parameters based on timeframe
-        # For weekly data, always fetch daily data and build weekly from scratch
-        # KuCoin's weekly data starts on Sunday, but we want Monday-based weeks
-        if self.timeframe == '1w':
-            api_interval = '1day'
-        elif self.timeframe in ["2d", "3d", "4d"]:
-            api_interval = '1day'
-        else:
-            api_interval = self.interval_map[self.timeframe]
-        
-        # Calculate end time (now)
-        end_time = int(time.time())
-        
-        # Adjust fetch limit for weekly data to ensure we have enough daily candles
-        fetch_limit = 500 if self.timeframe == '1w' else self.fetch_limit
-        
-        params = {
-            'symbol': symbol,
-            'type': api_interval,
-            'endAt': end_time,
-            'limit': fetch_limit
-        }
-        
+        symbol = symbol.replace('_', '-').upper()  # ensure spot format
+
+        # For aggregated frames, always pull 1day to build 2d/3d/4d/1w yourself
+        api_interval = '1day' if self.timeframe in ('2d', '3d', '4d', '1w') else self.interval_map[self.timeframe]
+        target_count = self._required_source_count()
+
+        # seconds-based time windowing
+        now_s = int(time.time())
+
+        # step size per request in SECONDS for each interval (1500 bars max per call)
+        interval_seconds = {
+            '1min': 60, '3min': 180, '5min': 300, '15min': 900, '30min': 1800,
+            '1hour': 3600, '2hour': 7200, '4hour': 14400, '6hour': 21600,
+            '8hour': 28800, '12hour': 43200, '1day': 86400, '1week': 604800
+        }[api_interval]
+        window_seconds = 1500 * interval_seconds  # max span we can request per call
+
+        end_at = now_s
+        rows = []
+
         try:
-            async with self.session.get(url, params=params) as response:
-                data = await response.json()
-                
-                if data.get('code') == '200000' and 'data' in data:
-                    # KuCoin returns: [time, open, close, high, low, volume, turnover]
-                    # Note: KuCoin has different column order than other exchanges
-                    columns = ['timestamp', 'open', 'close', 'high', 'low', 'volume', 'turnover']
-                    df = pd.DataFrame(data['data'], columns=columns)
-                    
-                    # Convert types
-                    df = df.astype({
-                        'timestamp': 'int64',
-                        'open': 'float',
-                        'high': 'float',
-                        'low': 'float',
-                        'close': 'float',
-                        'volume': 'float'
-                    })
-                    
-                    # KuCoin timestamp is in seconds
-                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
-                    df.set_index('timestamp', inplace=True)
-                    
-                    # Reorder columns to standard OHLCV format
-                    df = df[['open', 'high', 'low', 'close', 'volume']]
-                    
-                    # KuCoin data may come in reverse order, ensure oldest first
-                    if len(df) > 1 and df.index[0] > df.index[-1]:
-                        df = df.sort_index()
-                    
-                    # Process according to timeframe
-                    if self.timeframe == '2d':
-                        df = self.aggregate_to_2d(df)
-                    elif self.timeframe == '3d':
-                        df = self.aggregate_to_3d(df)
-                    elif self.timeframe == '4d':
-                        df = self.aggregate_to_4d(df)
-                    elif self.timeframe == '1w':
-                        # Use custom weekly aggregation for Monday-based weeks
-                        df = self.build_weekly_candles(df)
-                    
-                    return df
-                else:
-                    # Handle KuCoin error responses
-                    if data.get('code') == '400005':  # Invalid symbol
-                        logging.warning(f"Invalid symbol {symbol} on KuCoin")
-                    elif data.get('code') == '429000':  # Rate limit
-                        logging.warning(f"Rate limit exceeded for {symbol} on KuCoin")
-                    else:
-                        logging.error(f"KuCoin API error for {symbol}: {data}")
+            while len(rows) < target_count:
+                start_at = max(0, end_at - window_seconds + interval_seconds)  # inclusive window
+                params = {
+                    'symbol': symbol,
+                    'type': api_interval,
+                    'startAt': start_at,
+                    'endAt': end_at
+                }
+                async with self.session.get(url, params=params) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        logging.error(f"KuCoin spot klines HTTP {resp.status} for {symbol}: {text}")
+                        return None
+                    payload = await resp.json()
+
+                if payload.get('code') != '200000':
+                    logging.error(f"KuCoin spot klines API error for {symbol}: {payload}")
                     return None
+
+                batch = payload.get('data') or []
+                if not batch:
+                    # no more older data
+                    break
+
+                # API returns newest -> oldest; extend and step the window backward
+                rows.extend(batch)
+                earliest_ts = int(batch[-1][0])  # seconds, oldest item in this batch
+                # Next window ends just before the earliest bar we already have
+                end_at = earliest_ts - 1
+
+                await asyncio.sleep(self.request_delay)
+
+                # If the window got us fewer than the theoretical max, we're near the start of history
+                if len(batch) < 1500 and (end_at - start_at + 1) < window_seconds:
+                    # still continue until target_count or until the API runs out
+                    continue
+
+            if not rows:
+                logging.error(f"No klines returned for {symbol} @ {api_interval}")
+                return None
+
+            # KuCoin row: [time, open, close, high, low, volume, turnover]
+            columns = ['timestamp', 'open', 'close', 'high', 'low', 'volume', 'turnover']
+            df = pd.DataFrame(rows, columns=columns[:len(rows[0])])
+
+            # Cast + index (timestamps are seconds) — keep tz-naive
+            df['timestamp'] = pd.to_datetime(df['timestamp'].astype('int64'), unit='s')
+            # Normalize numeric columns
+            for c in ['open', 'high', 'low', 'close', 'volume']:
+                if c in df:
+                    df[c] = pd.to_numeric(df[c], errors='coerce')
+
+            # Reorder & sort ascending
+            df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].dropna()
+            df = df.sort_values('timestamp').set_index('timestamp')
+
+            # Force tz-naive just in case
+            if getattr(df.index, "tz", None) is not None:
+                df.index = df.index.tz_localize(None)
+
+            # Aggregate if needed (use your existing helpers)
+            if self.timeframe == '2d':
+                df = self.aggregate_to_2d(df)
+            elif self.timeframe == '3d':
+                df = self.aggregate_to_3d(df)
+            elif self.timeframe == '4d':
+                df = self.aggregate_to_4d(df)
+            elif self.timeframe == '1w':
+                df = self.build_weekly_candles(df)  # Monday-based weeks via your helper
+
+            return df
+
         except asyncio.TimeoutError:
-            logging.error(f"Timeout fetching klines for {symbol} from KuCoin")
+            logging.error(f"Timeout fetching klines for {symbol} from KuCoin spot")
             return None
         except Exception as e:
-            logging.error(f"Error fetching klines for {symbol} from KuCoin: {str(e)}")
+            logging.error(f"Error fetching klines for {symbol} from KuCoin spot: {str(e)}")
             return None

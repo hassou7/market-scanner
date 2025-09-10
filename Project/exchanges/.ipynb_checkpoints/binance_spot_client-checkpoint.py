@@ -35,14 +35,13 @@ class BinanceSpotClient(BaseExchangeClient):
         }
     
     def _get_fetch_limit(self):
-        """Return the number of candles to fetch based on timeframe"""
         return {
-            '1w': 60,      # Weekly needs at least 60 bars for macro lookback
-            '4d': 160,     # 4d needs 160 daily bars to build 40+ 4d candles
-            '3d': 150,     # 3d needs 150 daily bars to build 50+ 3d candles
-            '2d': 120,     # 2d needs 120 daily bars to build 60+ 2d candles
-            '1d': 60,      # Daily needs at least 60 days for history
-            '4h': 200      # 4h needs more bars for analysis
+            '1w': 60,      # 60 weekly candles (direct from API)
+            '4d': 220,     # 220 daily → aggregate to ~55 4d candles  
+            '3d': 170,     # 170 daily → aggregate to ~56 3d candles
+            '2d': 110,     # 110 daily → aggregate to 55 2d candles
+            '1d': 60,      # 60 daily candles (direct from API)
+            '4h': 60       # 60 4h candles (direct from API)
         }[self.timeframe]
 
     async def get_all_spot_symbols(self):

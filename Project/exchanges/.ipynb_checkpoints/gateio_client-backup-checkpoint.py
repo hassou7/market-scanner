@@ -33,42 +33,23 @@ class GateioClient(BaseExchangeClient):
         }
     
     def _get_fetch_limit(self):
+        """Return the number of candles to fetch based on timeframe"""
         return {
-            '1w': 60,      # 60 weekly candles (direct from API)
-            '4d': 220,     # 220 daily → aggregate to ~55 4d candles  
-            '3d': 170,     # 170 daily → aggregate to ~56 3d candles
-            '2d': 110,     # 110 daily → aggregate to 55 2d candles
-            '1d': 60,      # 60 daily candles (direct from API)
-            '4h': 60       # 60 4h candles (direct from API)
+            '1w': 80,      # Weekly needs at least 60+ bars for macro lookback
+            '4d': 200,     # 4d needs 200 daily bars to build 50+ 4d candles
+            '3d': 180,     # 3d needs 180 daily bars to build 60+ 3d candles
+            '2d': 150,     # 2d needs 150 daily bars to build 75+ 2d candles
+            '1d': 80,      # Daily needs at least 80 days for history
+            '4h': 200      # 4h needs more bars
         }[self.timeframe]
 
     async def get_all_spot_symbols(self):
-        """Fetch all USDT spot trading pairs from Gate.io, excluding leveraged tokens"""
+        """Fetch all USDT spot trading pairs from Gate.io"""
         async with self.session.get(f"{self.base_url}/spot/currency_pairs") as response:
             data = await response.json()
-            
-            # Define patterns to exclude Gate.io leveraged tokens
-            excluded_patterns = [
-                '3S',    # 3x Short leveraged tokens
-                '3L',    # 3x Long leveraged tokens  
-                '5S',    # 5x Short leveraged tokens
-                '5L'     # 5x Long leveraged tokens
-            ]
-            
-            symbols = []
-            for pair in data:
-                if (pair.get('quote') == self.quote_currency and 
-                    pair.get('trade_status') == 'tradable'):
-                    
-                    symbol = pair['id']
-                    base_currency = symbol.replace('_USDT', '')
-                    
-                    # Check if symbol contains any excluded leveraged token patterns
-                    should_exclude = any(pattern in base_currency for pattern in excluded_patterns)
-                    
-                    if not should_exclude:
-                        symbols.append(symbol)
-            
+            symbols = [pair['id'] for pair in data 
+                      if pair.get('quote') == self.quote_currency and 
+                      pair.get('trade_status') == 'tradable']
             return sorted(symbols)
 
     async def fetch_klines(self, symbol: str):

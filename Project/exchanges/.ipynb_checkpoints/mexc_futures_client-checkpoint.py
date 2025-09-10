@@ -32,14 +32,13 @@ class MexcFuturesClient(BaseExchangeClient):
         }
     
     def _get_fetch_limit(self):
-        """Return the number of candles to fetch based on timeframe"""
         return {
-            '1w': 150,     # Weekly needs enough daily bars for proper weekly construction
-            '4d': 200,     # 4d needs 200 daily bars to build 50+ 4d candles
-            '3d': 180,     # 3d needs 180 daily bars to build 60+ 3d candles
-            '2d': 150,     # 2d needs 150 daily bars to build 75+ 2d candles
-            '1d': 80,      # Daily needs at least 80 days for history
-            '4h': 200      # 4h needs more bars
+            '1w': 360,      
+            '4d': 360,     # aggregate to ~90 4d candles  
+            '3d': 360,     #  aggregate to ~120 3d candles
+            '2d': 360,     # aggregate to 180 2d candles
+            '1d': 360,      # 360 daily candles (direct from API)
+            '4h': 60       # 60 4h candles (direct from API)
         }[self.timeframe]
 
     async def get_all_spot_symbols(self):

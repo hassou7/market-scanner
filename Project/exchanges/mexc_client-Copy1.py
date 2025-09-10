@@ -1,3 +1,5 @@
+#exchanges/mexc_spot_client.py
+
 import asyncio
 import aiohttp
 import logging
@@ -24,18 +26,21 @@ class MexcClient(BaseExchangeClient):
         """Map standard timeframes to MEXC API specific intervals"""
         return {
             '1w': '1d',    # Will build weekly from daily
+            '4d': '1d',    # Will build 4d from daily
+            '3d': '1d',    # Will build 3d from daily
             '2d': '1d',    # Will build 2d from daily
             '1d': '1d',    # Daily
             '4h': '4h'     # 4-hour
         }
     
     def _get_fetch_limit(self):
-        """Return the number of candles to fetch based on timeframe"""
         return {
-            '1w': 200,     # Need at least 200 days to build good weekly data
-            '2d': 120,     # Need at least 120 days for 2d candles
-            '1d': 60,      # Daily needs at least 60 days for history
-            '4h': 200      # 4h needs more bars
+            '1w': 360,      
+            '4d': 360,     # aggregate to ~90 4d candles  
+            '3d': 360,     #  aggregate to ~120 3d candles
+            '2d': 360,     # aggregate to 180 2d candles
+            '1d': 360,      # 360 daily candles (direct from API)
+            '4h': 60       # 60 4h candles (direct from API)
         }[self.timeframe]
 
     async def get_all_spot_symbols(self):
@@ -61,10 +66,15 @@ class MexcClient(BaseExchangeClient):
         
         # Calculate end time (now)
         end_time = int(time.time() * 1000)  # MEXC uses milliseconds
+
+        # For 4h, calculate start time in hours (4h * fetch_limit)
+        fetch_limit = self._get_fetch_limit()  # e.g., 200 for 4h
+        if self.timeframe == '4h':
+            start_time = end_time - (fetch_limit * 4 * 60 * 60 * 1000)
+        else:
+            fetch_days = 360 if self.timeframe in ['1w', '4d', '3d', '2d'] else fetch_limit
+            start_time = end_time - (fetch_days * 24 * 60 * 60 * 1000)
         
-        # Calculate start time based on needed days
-        fetch_days = 90 if self.timeframe in ['1w', '2d'] else self.fetch_limit
-        start_time = end_time - (fetch_days * 24 * 60 * 60 * 1000)
         
         params = {
             'symbol': symbol,
@@ -102,6 +112,10 @@ class MexcClient(BaseExchangeClient):
                     # Process according to timeframe
                     if self.timeframe == '2d':
                         df = self.aggregate_to_2d(df)
+                    elif self.timeframe == '3d':
+                        df = self.aggregate_to_3d(df)
+                    elif self.timeframe == '4d':
+                        df = self.aggregate_to_4d(df)
                     elif self.timeframe == '1w':
                         df = self.build_weekly_candles(df)
                     

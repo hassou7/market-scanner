@@ -31,18 +31,20 @@ from breakout_vsa import (
 class HistoricalSignalScanner:
     """Scanner for detecting historical signals across multiple timeframes and strategies"""
     
-    def __init__(self, exchange_name, timeframe="1d", limit=500):
+    def __init__(self, exchange_name, timeframe="1d", limit=None):
         """
         Initialize the historical scanner
         
         Args:
             exchange_name: Exchange to scan (e.g., 'binance_futures', 'binance_spot', etc.)
             timeframe: Timeframe for analysis ('1h', '4h', '1d', '1w', etc.)
-            limit: Number of historical candles to fetch (default: 500, max varies by exchange)
+            limit: (Optional) kept for API compatibility with older code; 
+            clients now paginate internally and ignore this value.
         """
         self.exchange_name = exchange_name
         self.timeframe = timeframe
-        self.limit = min(limit, 1000)  # Cap at 1000 for safety
+        self.limit = limit
+        
         
         # Exchange mapping
         self.exchange_map = {
@@ -224,7 +226,7 @@ class HistoricalSignalScanner:
             strategies = self.available_strategies
             
         # Fetch historical data
-        df = await self.client.fetch_klines(symbol, limit=self.limit)
+        df = await self.client.fetch_klines(symbol)
         if df is None or len(df) < 50:
             logging.warning(f"Insufficient data for {symbol}")
             return {}
