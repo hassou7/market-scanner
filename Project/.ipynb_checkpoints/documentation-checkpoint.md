@@ -105,6 +105,28 @@ project/
 └── vsa_and_custom_scanner.ipynb  # Jupyter notebook interface
 ```
 
+## API Rate Limits and Data Requirements
+
+### Exchange API Limits
+The scanner is optimized to work within each exchange's API limits while ensuring sufficient data for technical analysis:
+
+- **Binance (Spot & Futures):** 1000 candles maximum per request
+- **Bybit (Spot & Futures):** 1000 candles maximum per request  
+- **KuCoin (Spot & Futures):** 1500 candles maximum per request
+- **Gate.io (Spot & Futures):** 1000 candles maximum per request
+- **MEXC (Spot & Futures):** 1000 candles maximum per request
+
+### Optimized Fetch Limits
+The scanner uses these fetch limits to ensure sufficient data for SMA50 calculations and pattern detection:
+```python
+'1w': 60,      # 60 weekly candles (native timeframe)
+'4d': 220,     # 220 daily → 55 four-day candles (aggregated)
+'3d': 170,     # 170 daily → 56 three-day candles (aggregated)  
+'2d': 110,     # 110 daily → 55 two-day candles (aggregated)
+'1d': 60,      # 60 daily candles (native timeframe)
+'4h': 60       # 60 four-hour candles (native timeframe)
+```
+
 ## Installation
 
 1. Clone the repository:
@@ -644,6 +666,49 @@ An advanced diagonal channel breakout detection system that identifies when pric
 
 A sophisticated hybrid strategy that combines **Consolidation Breakout**/**Channel Breakout** AND **Confluence Signal** detection for ultra-high probability trade setups. HBS stands for "Hybrid Breakout Strategy" and represents the confluence of multiple confirming factors.
 
+**Enhanced Component Detection:**
+- **Primary Components**: Consolidation/Channel breakout + Confluence signal (required)
+- **Secondary Components**: 50SMA Breakout and Engulfing Reversal detection (optional)
+- **Multi-Factor Analysis**: Reports which technical components are present
+
+**Detection Requirements:**
+- Confluence signal must be present (Volume + Spread + Momentum alignment)
+- Either consolidation breakout OR channel breakout must occur simultaneously
+- Optional: 50SMA breakout adds trend confirmation
+- Optional: Engulfing reversal adds momentum confirmation
+
+**Enhanced Telegram Notifications Include:**
+- Primary breakout context (Consolidation/Channel/Both)
+- Confluence extremes (Volume/Spread analysis)
+- Secondary component indicators:
+  - ✅ 50SMA: classic_breakout (Strong) - when SMA50 breakout occurs
+  - ✅ Engulfing Reversal: Up - when reversal pattern detected
+- Complete technical analysis summary for informed decision-making
+
+### Weekly Data Aggregation Issues
+
+Some exchanges have weekly candlestick inconsistencies that require special handling:
+
+**MEXC Weekly Aggregation:**
+- MEXC's native weekly data may have reliability issues
+- Scanner automatically aggregates from daily data to ensure Sunday weekly closes
+- Uses Monday-Sunday week calculation for consistency
+
+**KuCoin Weekly Close Issue:**  
+- KuCoin's weekly candles close on Thursday instead of Sunday
+- Scanner forces daily aggregation to build proper Sunday-close weekly candles
+- Ensures consistency with other exchanges' weekly timeframes
+
+**Implementation:**
+```python
+# Force weekly aggregation from daily data
+def _get_interval_map(self):
+    return {
+        '1w': '1d',    # Build weekly from daily (Sunday close)
+        # ... other timeframes
+    }
+```
+    
 ## SF Weekly Scanning
 
 The scanner now includes enhanced weekly data access through the Seven Figures (SF) service for KuCoin and MEXC exchanges.
@@ -941,9 +1006,36 @@ For strategies that detect ongoing patterns (Channel, Consolidation, Wedge), the
 
 ---
 
+### SMA50 Strategy Data Requirements
+
+**Minimum Data Requirements:**
+- SMA50 strategies require minimum 51 candles (50 for calculation + 1 current)
+- Aggregated timeframes need sufficient underlying daily data:
+  - 4d timeframe: 204+ daily candles → 51+ four-day candles
+  - 3d timeframe: 153+ daily candles → 51+ three-day candles
+  - 2d timeframe: 102+ daily candles → 51+ two-day candles
+
+**Common Issues:**
+- SMA50 breakout failing on 4d timeframes = insufficient daily data
+- Unreliable pattern detection = not enough historical context
+- Scanner using optimized limits to prevent these issues automatically
+
+
 ## Recent Updates
 
-### Version 2.6 Features (NEW)
+### Version 2.7 Features (NEW)
+
+- **Enhanced HBS Breakout Strategy**: Advanced multi-component analysis combining breakout detection with confluence signals
+- **SMA50 Breakout Component Detection**: HBS strategy now reports when 50SMA breakout occurs simultaneously with consolidation/channel breakouts
+- **Engulfing Reversal Component Detection**: HBS strategy identifies and reports engulfing reversal patterns within confluence signals
+- **Optimized API Data Fetching**: Updated fetch limits across all exchanges to ensure sufficient data for SMA50 calculations on aggregated timeframes
+- **Enhanced Telegram Notifications**: HBS breakout messages now include visual indicators (✅) for secondary technical components when present
+- **Improved Aggregated Timeframe Support**: Fixed data requirements for 2d, 3d, and 4d timeframes to ensure reliable SMA50 strategy performance
+- **Weekly Data Consistency**: Enhanced handling of MEXC and KuCoin weekly data aggregation to ensure Sunday weekly closes across all exchanges
+- **Multi-Factor Signal Analysis**: HBS strategy provides comprehensive technical analysis showing which confluence factors are driving the breakout signal
+- **Clean Date Display**: Removed time components from Telegram message dates for cleaner presentation
+
+### Version 2.6 Features
 
 - **Channel Strategy**: Ongoing diagonal channel monitoring for consolidation patterns
 - **Enhanced Pattern Detection**: Real-time monitoring of diagonal consolidation channels

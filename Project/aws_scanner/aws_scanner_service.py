@@ -142,8 +142,8 @@ spot_scan_configs = [
     # },
     {
         "timeframe": "1d",
-        "strategies": ["hbs_breakout", "loaded_bar", "volume_surge"],
-        "exchanges": ["binance_futures"],
+        "strategies": ["hbs_breakout", "loaded_bar"],
+        "exchanges": spot_exchanges + ["binance_futures"],
         "users": ["default"],
         "send_telegram": True,
         "min_volume_usd": None

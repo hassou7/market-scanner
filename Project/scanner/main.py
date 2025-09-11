@@ -133,7 +133,20 @@ class UnifiedScanner:
                 suffix = ".P" if "Futures" in self.exchange_name else ""
                 tv_exchange = self.exchange_name.upper().replace(" ", "").replace("FUTURES", "").replace("SPOT", "")
                 tv_link = f"https://www.tradingview.com/chart/?symbol={tv_exchange}:{tv_symbol}{suffix}&interval={tv_timeframe}"
-                date = result.get('date') or result.get('timestamp')
+                # date = result.get('date') or result.get('timestamp') #If we want 2025-01-15 14:30:00 instead of 2025-01-15
+                raw_date = result.get('date') or result.get('timestamp')
+                # Format date to remove time component
+                if hasattr(raw_date, 'strftime'):
+                    date = raw_date.strftime('%Y-%m-%d')
+                elif isinstance(raw_date, str):
+                    # Handle string dates by parsing and reformatting
+                    try:
+                        parsed_date = pd.to_datetime(raw_date)
+                        date = parsed_date.strftime('%Y-%m-%d')
+                    except:
+                        date = raw_date  # Fallback to original if parsing fails
+                else:
+                    date = str(raw_date)
                 bar_status = "CURRENT BAR" if result.get('current_bar') else "Last Closed Bar"
                 volume_period = "Weekly" if timeframe == "1w" else \
                                 "4-Day" if timeframe == "4d" else \
@@ -293,7 +306,7 @@ class UnifiedScanner:
                         f"Low vs SMA: {result.get('low_vs_sma_pct', 0):+.2f}%\n"
                         f"{volume_period} Volume: ${volume_usd:,.2f}\n"
                         f"{'='*30}\n"
-                    )
+                    ) 
                 elif strategy == 'hbs_breakout':
                     # Extract needed values
                     volume_usd = result.get('volume_usd', 0)
@@ -308,7 +321,7 @@ class UnifiedScanner:
                         direction_display = "⚪ NEUTRAL"
                     
                     # Determine context (what type of breakout)
-                    context = result.get('breakout_type', '')  # You'll need to pass this from scan_market
+                    context = result.get('breakout_type', '')
                     if context == 'both':
                         context_display = "📈 Both"
                     elif context == 'channel_breakout':
@@ -329,11 +342,29 @@ class UnifiedScanner:
                     else:
                         extreme_display = "🟢 None"
                     
+                    # Enhanced component analysis
+                    has_sma50 = result.get('has_sma50_breakout', False)
+                    has_engulfing = result.get('has_engulfing_reversal', False)
+                    sma50_type = result.get('sma50_breakout_type', '')
+                    sma50_strength = result.get('sma50_breakout_strength', '')
+                    confluence_direction = result.get('confluence_direction', 'Up')
+                    
+                    # Build component indicators (only add when present)
+                    component_lines = []
+                    if has_sma50:
+                        sma_indicator = f"✅ 50SMA: {sma50_type}"
+                        if sma50_strength:
+                            sma_indicator += f" ({sma50_strength})"
+                        component_lines.append(sma_indicator)
+                    
+                    if has_engulfing:
+                        component_lines.append(f"✅ Engulfing Reversal: {confluence_direction}")
+                    
                     # Format price and volume
                     price_formatted = f"${result.get('close', 0):,.2f}"
                     volume_formatted = f"${volume_usd:,.1f}M" if volume_usd >= 1000000 else f"${volume_usd:,.0f}"
                     
-                    # Create compact message with clickable symbol
+                    # Create enhanced message with components only when present
                     signal_message = (
                         f"<a href='{tv_link}'>{symbol}</a> | {price_formatted} | Vol: {volume_formatted}\n"
                         f"Time: {date} | {bar_status}\n"
@@ -342,8 +373,15 @@ class UnifiedScanner:
                         f"Context: {context_display}\n"
                         f"Is extreme: {extreme_display}\n"
                         f"Direction: {direction_display}\n"
-                        f"{'='*30}\n"
                     )
+                    
+                    # Add component lines only if they exist
+                    if component_lines:
+                        signal_message += "----\n"
+                        for component in component_lines:
+                            signal_message += f"{component}\n"
+                    
+                    signal_message += f"{'='*30}\n"
                 elif strategy == 'volume_surge':
                     signal_message = (
                         f"Symbol: {symbol}\n"
@@ -1149,8 +1187,9 @@ class UnifiedScanner:
             
             # Handle hbs_breakout strategy (combination of consolidation_breakout + confluence)
             elif strategy == 'hbs_breakout':
-                from custom_strategies import detect_consolidation_breakout, detect_confluence, detect_channel_breakout
+                from custom_strategies import detect_consolidation_breakout, detect_confluence, detect_channel_breakout, detect_sma50_breakout
                 
+                # Run all component detections
                 cb_detected_prev, cb_result_prev = detect_consolidation_breakout(df, check_bar=-2)
                 cb_detected_curr, cb_result_curr = detect_consolidation_breakout(df, check_bar=-1)
                 cf_detected_prev, cf_result_prev = detect_confluence(df, check_bar=-2)
@@ -1158,27 +1197,36 @@ class UnifiedScanner:
                 chb_detected_prev, chb_result_prev = detect_channel_breakout(df, check_bar=-2)
                 chb_detected_curr, chb_result_curr = detect_channel_breakout(df, check_bar=-1)
                 
+                # Check for SMA50 breakout component
+                sma50_detected_prev, sma50_result_prev = False, {}
+                sma50_detected_curr, sma50_result_curr = False, {}
+                if len(df) > 57:  # Ensure enough data for SMA50
+                    sma50_detected_prev, sma50_result_prev = detect_sma50_breakout(df, check_bar=-2)
+                    sma50_detected_curr, sma50_result_curr = detect_sma50_breakout(df, check_bar=-1)
+                
+                # Process current bar first (higher priority)
                 if cf_detected_curr and (cb_detected_curr or chb_detected_curr):
+                    # Determine which breakout type occurred
                     if cb_detected_curr and chb_detected_curr:
-                        # Prefer channel_breakout if both occur
-                        breakout_result = chb_result_curr
-                        breakout_type = "channel_breakout"
+                        breakout_result = chb_result_curr  # Prefer channel breakout
+                        breakout_type = "both"
                     elif cb_detected_curr:
                         breakout_result = cb_result_curr
+                        breakout_type = "consolidation_breakout"
                     else:
                         breakout_result = chb_result_curr
-                        breakout_type = "consolidation_breakout"
+                        breakout_type = "channel_breakout"
                     
+                    # Calculate volume info
                     volume_usd = df['volume'].iloc[-1] * df['close'].iloc[-1]
                     volume_mean = df['volume'].rolling(7).mean().iloc[-1]
                     volume_ratio = df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0
-                    bar_idx = -1
                     close_indicator, close_pos_pct = get_close_position_indicator(
-                        df['high'].iloc[bar_idx], 
-                        df['low'].iloc[bar_idx], 
-                        df['close'].iloc[bar_idx]
+                        df['high'].iloc[-1], 
+                        df['low'].iloc[-1], 
+                        df['close'].iloc[-1]
                     )
-                
+                    
                     results[strategy] = {
                         'symbol': symbol,
                         'direction': breakout_result.get('direction'),
@@ -1193,29 +1241,39 @@ class UnifiedScanner:
                         'max_height_pct_req': breakout_result.get('max_height_pct_req'),
                         'extreme_volume': cf_result_curr.get('extreme_volume', False),
                         'extreme_spread': cf_result_curr.get('extreme_spread', False),
-                        'breakout_type': 'both' if (cb_detected_curr and chb_detected_curr) else 'channel_breakout' if chb_detected_curr else 'consolidation_breakout',
+                        'breakout_type': breakout_type,
                         'close_position_indicator': close_indicator,
                         'close_position_pct': close_pos_pct,
+                        # Enhanced components
+                        'has_sma50_breakout': sma50_detected_curr,
+                        'sma50_breakout_type': sma50_result_curr.get('breakout_type', '') if sma50_detected_curr else '',
+                        'sma50_breakout_strength': sma50_result_curr.get('breakout_strength', '') if sma50_detected_curr else '',
+                        'has_engulfing_reversal': cf_result_curr.get('is_engulfing_reversal', False),
+                        'confluence_direction': cf_result_curr.get('direction', 'Up'),
                     }
                     logging.info(f"{strategy} detected for {symbol} (current bar)")
                 
+                # Process last closed bar if current bar didn't trigger
                 elif cf_detected_prev and (cb_detected_prev or chb_detected_prev):
+                    # Determine which breakout type occurred  
                     if cb_detected_prev and chb_detected_prev:
-                        # Prefer channel_breakout if both occur
-                        breakout_result = chb_result_prev
+                        breakout_result = chb_result_prev  # Prefer channel breakout
+                        breakout_type = "both"
                     elif cb_detected_prev:
                         breakout_result = cb_result_prev
+                        breakout_type = "consolidation_breakout"
                     else:
                         breakout_result = chb_result_prev
+                        breakout_type = "channel_breakout"
                     
+                    # Calculate volume info
                     volume_usd = df['volume'].iloc[-2] * df['close'].iloc[-2]
                     volume_mean = df['volume'].rolling(7).mean().iloc[-2]
                     volume_ratio = df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0
-                    bar_idx = -2
                     close_indicator, close_pos_pct = get_close_position_indicator(
-                        df['high'].iloc[bar_idx], 
-                        df['low'].iloc[bar_idx], 
-                        df['close'].iloc[bar_idx]
+                        df['high'].iloc[-2], 
+                        df['low'].iloc[-2], 
+                        df['close'].iloc[-2]
                     )
                     
                     results[strategy] = {
@@ -1232,11 +1290,17 @@ class UnifiedScanner:
                         'max_height_pct_req': breakout_result.get('max_height_pct_req'),
                         'extreme_volume': cf_result_prev.get('extreme_volume', False),
                         'extreme_spread': cf_result_prev.get('extreme_spread', False),
-                        'breakout_type': 'both' if (cb_detected_prev and chb_detected_prev) else 'channel_breakout' if chb_detected_prev else 'consolidation_breakout',
+                        'breakout_type': breakout_type,
                         'close_position_indicator': close_indicator,
                         'close_position_pct': close_pos_pct,
+                        # Enhanced components
+                        'has_sma50_breakout': sma50_detected_prev,
+                        'sma50_breakout_type': sma50_result_prev.get('breakout_type', '') if sma50_detected_prev else '',
+                        'sma50_breakout_strength': sma50_result_prev.get('breakout_strength', '') if sma50_detected_prev else '',
+                        'has_engulfing_reversal': cf_result_prev.get('is_engulfing_reversal', False),
+                        'confluence_direction': cf_result_prev.get('direction', 'Up'),
                     }
-                    logging.info(f"{strategy} detected for {symbol} (last closed bar)")            
+                    logging.info(f"{strategy} detected for {symbol} (last closed bar)")       
                 
         return results
 

@@ -4,14 +4,14 @@ This guide will help you completely clean your AWS instance and set up the marke
 
 ## Prerequisites
 
-- SSH key file: `C:\Users\hbs\.ssh\volume_surge.pem`
-- AWS Instance IP: `16.171.41.211`
+- SSH key file: `C:\Users\hbs\.ssh\hbs_event_indicator.pem`
+- AWS Instance IP: `13.60.20.56`
 - GitHub Repository: `https://github.com/hassou7/market-scanner`
 
 ## Step 1: Connect to Your AWS Instance
 
 ```bash
-ssh -i "C:\Users\hbs\.ssh\volume_surge.pem" ec2-user@16.171.41.211
+ssh -i "C:\Users\hbs\.ssh\hbs_event_indicator.pem" ec2-user@13.60.20.56
 ```
 
 ## Step 2: Stop the Running Service
