@@ -1023,7 +1023,20 @@ For strategies that detect ongoing patterns (Channel, Consolidation, Wedge), the
 
 ## Recent Updates
 
-### Version 2.7 Features (NEW)
+### Version 2.8 Features (NEW)
+
+- **Parallel Strategy Execution**: Strategies now run concurrently within each symbol scan using `asyncio.gather()` instead of sequentially, eliminating the primary performance bottleneck
+- **ThreadPoolExecutor Integration**: CPU-intensive pandas operations moved to thread pool (4 workers) to prevent async event loop blocking during heavy calculations
+- **Optimized Batch Processing**: Increased symbol batch size from 15 to 25 for improved throughput while respecting exchange API rate limits
+- **Thread-Safe Architecture**: Complete rewrite of strategy detection methods with proper import scoping to prevent conflicts in multi-threaded execution
+- **VSA Parameters Caching**: Strategy parameters cached to eliminate repeated imports and function calls, improving performance across large scans
+- **Trend Breakout Index Fix**: Resolved pandas "identically-labeled Series objects" errors by preserving datetime indices in all Series calculations and comparisons
+- **Error Isolation**: Individual strategy failures no longer crash entire symbol scans - robust error handling allows other strategies to continue processing
+- **Enhanced Resource Management**: Proper ThreadPoolExecutor shutdown, session cleanup, and memory optimization with cache management utilities
+- **Two-Level Parallelism**: Symbol-level batching (25 concurrent) combined with strategy-level parallelism for maximum processing efficiency
+- **Backward Compatibility**: All existing `run_scanner()` APIs and configuration files remain unchanged - drop-in replacement for seamless upgrades
+  
+### Version 2.7 Features
 
 - **Enhanced HBS Breakout Strategy**: Advanced multi-component analysis combining breakout detection with confluence signals
 - **SMA50 Breakout Component Detection**: HBS strategy now reports when 50SMA breakout occurs simultaneously with consolidation/channel breakouts
