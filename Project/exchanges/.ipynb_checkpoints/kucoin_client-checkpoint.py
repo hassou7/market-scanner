@@ -6,6 +6,7 @@ import logging
 import pandas as pd
 import numpy as np
 import time
+import re
 from datetime import datetime, timedelta
 from .base_client import BaseExchangeClient
 
@@ -60,15 +61,20 @@ class KucoinClient(BaseExchangeClient):
         return sma_len + warmup  # native frames (1d, 4h)
 
     async def get_all_spot_symbols(self):
-        """Fetch all active USDT spot trading pairs from KuCoin."""
+        """Fetch all active USDT spot trading pairs from KuCoin, excluding leveraged tokens."""
         url = f"{self.base_url}/api/v1/symbols"
+        # Common leveraged token suffixes (before -USDT)
+        leverage_suffixes = {'2L', '2S', '3L', '3S', '5L', '5S'}  # Add more if needed (e.g., '10L')
+        
         try:
             async with self.session.get(url) as response:
                 data = await response.json()
             if data.get('code') == '200000' and 'data' in data:
                 symbols = [
                     item['symbol'] for item in data['data']
-                    if item.get('quoteCurrency') == self.quote_currency and item.get('enableTrading', False)
+                    if (item.get('quoteCurrency') == self.quote_currency and 
+                        item.get('enableTrading', False) and
+                        not any(item['symbol'].split('-')[0].endswith(suffix) for suffix in leverage_suffixes))
                 ]
                 return sorted(symbols)
             logging.error(f"Error fetching KuCoin spot symbols: {data}")

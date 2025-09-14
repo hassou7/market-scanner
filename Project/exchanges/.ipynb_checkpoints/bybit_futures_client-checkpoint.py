@@ -37,9 +37,9 @@ class BybitFuturesClient(BaseExchangeClient):
     def _get_fetch_limit(self):
         return {
             '1w': 60,      # 60 weekly candles (direct from API)
-            '4d': 220,     # 220 daily → aggregate to ~55 4d candles  
-            '3d': 170,     # 170 daily → aggregate to ~56 3d candles
-            '2d': 110,     # 110 daily → aggregate to 55 2d candles
+            '4d': 240,     # 220 daily → aggregate to ~55 4d candles  
+            '3d': 180,     # 170 daily → aggregate to ~56 3d candles
+            '2d': 120,     # 110 daily → aggregate to 55 2d candles
             '1d': 60,      # 60 daily candles (direct from API)
             '4h': 60       # 60 4h candles (direct from API)
         }[self.timeframe]

@@ -7,7 +7,7 @@ from telegram.ext import Application
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout, detect_sma50_breakout, detect_wedge_breakout, detect_channel
+from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout, detect_sma50_breakout, detect_wedge_breakout, detect_channel, detect_trend_breakout, detect_pin_up
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
 import os
@@ -67,7 +67,9 @@ class UnifiedScanner:
             'reversal_bar': 'Reversal Bar',
             'start_bar': 'Start Bar',
             'loaded_bar': 'Loaded Bar',
-            'test_bar': 'Test Bar'
+            'test_bar': 'Test Bar',
+            'trend_breakout': 'Trend Breakout Pattern',
+            'pin_up': 'Pin Up Pattern'
         }
         self.vsa_detectors = {
             'breakout_bar': breakout_bar_vsa,
@@ -207,15 +209,21 @@ class UnifiedScanner:
                         f"{'='*30}\n"
                     )
                 elif strategy == 'consolidation_breakout':
-                    # Get volume info
+                    # Get volume info (existing)
                     volume_usd = result.get('volume_usd', 0)
                     volume_ratio = result.get('volume_ratio', 0)
                     direction = result.get('direction', 'Unknown')
                     direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
                     
+                    # NEW: Strong indicator and channel ratio
+                    # strong_indicator = "🔥 STRONG (Channel)" if result.get('strong', False) else ""
+                    channel_ratio = result.get('channel_ratio', 1.0)
+                    channel_ratio_text = f"Channel Ratio: {channel_ratio:.2f}" if channel_ratio != 1.0 else "No Channel"
+                    
                     signal_message = (
                         f"Symbol: {symbol}\n"
-                        f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Direction: {direction_emoji} {direction} Breakout {strong_indicator}\n"
+                        f"{channel_ratio_text}\n"
                         f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
                         f"Time: {date} - {bar_status}\n"
                         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
@@ -306,7 +314,50 @@ class UnifiedScanner:
                         f"Low vs SMA: {result.get('low_vs_sma_pct', 0):+.2f}%\n"
                         f"{volume_period} Volume: ${volume_usd:,.2f}\n"
                         f"{'='*30}\n"
-                    ) 
+                    )
+                elif strategy == 'trend_breakout':
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Up')
+                    direction_emoji = "🟢"  # Always bullish for trend breakout
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Breakup Trigger: {'✅' if result.get('breakup_trigger') else '❌'}\n"
+                        f"ATR Trend: {'✅' if result.get('atr_trend_active') else '❌'}\n"
+                        f"Above HA High: {'✅' if result.get('above_ha_high') else '❌'}\n"
+                        f"MA Bullish: {'✅' if result.get('ma_bullish') else '❌'}\n"
+                        f"HA Momentum: {result.get('ha_momentum', 0):,.4f}\n"
+                        f"Pivot Break: ${result.get('pivot_high_break', 0):,.4f}\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'pin_up':
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Up')
+                    direction_emoji = "🟢"  # Always bullish for pin up
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Direction: {direction_emoji} {direction} Pin\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Bars Since Bottom: {result.get('bars_since_bullish_bottom', 0)}\n"
+                        f"Bottom High: ${result.get('bullish_bottom_high', 0):,.8f}\n"
+                        f"Above Prev High: {'✅' if result.get('close_above_prev_high') else '❌'}\n"
+                        f"Top Percentile: {'✅' if result.get('in_top_percentile') else '❌'}\n"
+                        f"Spread Favorable: {'✅' if result.get('spread_favorable') else '❌'}\n"
+                        f"{'='*30}\n"
+                    )
                 elif strategy == 'hbs_breakout':
                     # Extract needed values
                     volume_usd = result.get('volume_usd', 0)
@@ -352,8 +403,16 @@ class UnifiedScanner:
                     # Build component indicators (only add when present)
                     component_lines = []
                     if has_sma50:
-                        sma_indicator = f"✅ 50SMA: {sma50_type}"
-                        if sma50_strength:
+                        # More descriptive SMA50 status
+                        if sma50_type == "pre_breakout":
+                            sma_status = "Pre-Breakout"
+                        elif sma50_type == "classic_breakout":
+                            sma_status = "Full Breakout"
+                        else:
+                            sma_status = sma50_type.replace('_', ' ').title()
+                        
+                        sma_indicator = f"✅ 50SMA: {sma_status}"
+                        if sma50_strength and sma50_strength != sma50_type:
                             sma_indicator += f" ({sma50_strength})"
                         component_lines.append(sma_indicator)
                     
@@ -819,6 +878,8 @@ class UnifiedScanner:
                             'min_bars_inside_req': result.get('min_bars_inside_req'),
                             'height_pct': result.get('height_pct'),
                             'max_height_pct_req': result.get('max_height_pct_req'),
+                            # 'strong': result.get('strong', False),
+                            # 'channel_ratio': result.get('channel_ratio', 1.0),
                             'close_position_indicator': close_indicator,
                             'close_position_pct': close_pos_pct,
                         }
@@ -854,6 +915,8 @@ class UnifiedScanner:
                             'min_bars_inside_req': result.get('min_bars_inside_req'),
                             'height_pct': result.get('height_pct'),
                             'max_height_pct_req': result.get('max_height_pct_req'),
+                            # 'strong': result.get('strong', False),
+                            # 'channel_ratio': result.get('channel_ratio', 1.0),
                             'close_position_indicator': close_indicator,
                             'close_position_pct': close_pos_pct,
                         }
@@ -1184,7 +1247,106 @@ class UnifiedScanner:
                             'close_position_pct': close_pos_pct,
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
+            # Handle trend_breakout strategy
+            elif strategy == 'trend_breakout':
+                from custom_strategies import detect_trend_breakout
+                
+                # Check last closed bar
+                if len(df) > 1:
+                    detected, result = detect_trend_breakout(df, check_bar=-2)
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-2]),
+                            'close': df['close'].iloc[-2],
+                            'current_bar': False,
+                            'volume_usd': result.get('volume_usd'),
+                            'volume_ratio': result.get('volume_ratio'),
+                            'close_position_indicator': result.get('close_position_indicator'),
+                            'close_position_pct': result.get('close_position_pct'),
+                            'breakup_trigger': result.get('breakup_trigger'),
+                            'atr_trend_active': result.get('atr_trend_active'),
+                            'above_ha_high': result.get('above_ha_high'),
+                            'ma_bullish': result.get('ma_bullish'),
+                            'ha_momentum': result.get('ha_momentum'),
+                            'ha_momentum_increase': result.get('ha_momentum_increase'),
+                            'pivot_high_break': result.get('pivot_high_break'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
             
+                # Check current bar
+                if len(df) > 2:
+                    detected, result = detect_trend_breakout(df, check_bar=-1)
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-1]),
+                            'close': df['close'].iloc[-1],
+                            'current_bar': True,
+                            'volume_usd': result.get('volume_usd'),
+                            'volume_ratio': result.get('volume_ratio'),
+                            'close_position_indicator': result.get('close_position_indicator'),
+                            'close_position_pct': result.get('close_position_pct'),
+                            'breakup_trigger': result.get('breakup_trigger'),
+                            'atr_trend_active': result.get('atr_trend_active'),
+                            'above_ha_high': result.get('above_ha_high'),
+                            'ma_bullish': result.get('ma_bullish'),
+                            'ha_momentum': result.get('ha_momentum'),
+                            'ha_momentum_increase': result.get('ha_momentum_increase'),
+                            'pivot_high_break': result.get('pivot_high_break'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+
+            # Handle pin_up strategy
+            elif strategy == 'pin_up':
+                from custom_strategies import detect_pin_up
+                
+                # Check last closed bar
+                if len(df) > 1:
+                    detected, result = detect_pin_up(df, check_bar=-2)
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-2]),
+                            'close': df['close'].iloc[-2],
+                            'current_bar': False,
+                            'volume_usd': result.get('volume_usd'),
+                            'volume_ratio': result.get('volume_ratio'),
+                            'close_position_indicator': result.get('close_position_indicator'),
+                            'close_position_pct': result.get('close_position_pct'),
+                            'bars_since_bullish_bottom': result.get('bars_since_bullish_bottom'),
+                            'bullish_bottom_high': result.get('bullish_bottom_high'),
+                            'close_above_prev_high': result.get('close_above_prev_high'),
+                            'in_top_percentile': result.get('in_top_percentile'),
+                            'spread_favorable': result.get('spread_favorable'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
+            
+                # Check current bar
+                if len(df) > 2:
+                    detected, result = detect_pin_up(df, check_bar=-1)
+                    if detected:
+                        results[strategy] = {
+                            'symbol': symbol,
+                            'direction': result.get('direction'),
+                            'date': result.get('timestamp', df.index[-1]),
+                            'close': df['close'].iloc[-1],
+                            'current_bar': True,
+                            'volume_usd': result.get('volume_usd'),
+                            'volume_ratio': result.get('volume_ratio'),
+                            'close_position_indicator': result.get('close_position_indicator'),
+                            'close_position_pct': result.get('close_position_pct'),
+                            'bars_since_bullish_bottom': result.get('bars_since_bullish_bottom'),
+                            'bullish_bottom_high': result.get('bullish_bottom_high'),
+                            'close_above_prev_high': result.get('close_above_prev_high'),
+                            'in_top_percentile': result.get('in_top_percentile'),
+                            'spread_favorable': result.get('spread_favorable'),
+                        }
+                        logging.info(f"{strategy} detected for {symbol} (current bar)")
+                        
             # Handle hbs_breakout strategy (combination of consolidation_breakout + confluence)
             elif strategy == 'hbs_breakout':
                 from custom_strategies import detect_consolidation_breakout, detect_confluence, detect_channel_breakout, detect_sma50_breakout

@@ -1,3 +1,5 @@
+# custom_strategies/sma50_breakout.py
+
 """
 50SMA Breakout Strategy - Custom Pattern Detection
 
@@ -35,7 +37,7 @@ def atr(df, period=14):
     return true_range.rolling(period).mean()
 
 def detect_sma50_breakout(df, sma_period=50, atr_period=7, atr_multiplier=0.2, 
-                         use_pre_breakout=False, clean_lookback=7, check_bar=-1):
+                         use_pre_breakout=True, clean_lookback=7, check_bar=-1):
     """
     Detect 50SMA breakout signals
     

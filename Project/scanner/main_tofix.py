@@ -7,7 +7,7 @@ from telegram.ext import Application
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout, detect_sma50_breakout, detect_wedge_breakout, detect_channel, detect_trend_breakout, detect_pin_up
+from custom_strategies import detect_volume_surge, detect_weak_uptrend, detect_pin_down, detect_confluence, detect_consolidation, detect_consolidation_breakout, detect_channel_breakout, detect_sma50_breakout, detect_wedge_breakout, detect_channel
 from breakout_vsa import vsa_detector, breakout_bar_vsa, stop_bar_vsa, reversal_bar_vsa, start_bar_vsa, loaded_bar_vsa, test_bar_vsa
 from utils.config import VOLUME_THRESHOLDS
 import os
@@ -67,9 +67,7 @@ class UnifiedScanner:
             'reversal_bar': 'Reversal Bar',
             'start_bar': 'Start Bar',
             'loaded_bar': 'Loaded Bar',
-            'test_bar': 'Test Bar',
-            'trend_breakout': 'Trend Breakout Pattern',
-            'pin_up': 'Pin Up Pattern'
+            'test_bar': 'Test Bar'
         }
         self.vsa_detectors = {
             'breakout_bar': breakout_bar_vsa,
@@ -208,22 +206,35 @@ class UnifiedScanner:
                         f"Height %: {result.get('height_pct', 0):,.2f}%\n"
                         f"{'='*30}\n"
                     )
+                # elif strategy == 'consolidation_breakout':
+                #     # Get volume info
+                #     volume_usd = result.get('volume_usd', 0)
+                #     volume_ratio = result.get('volume_ratio', 0)
+                #     direction = result.get('direction', 'Unknown')
+                #     direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
+                    
+                #     signal_message = (
+                #         f"Symbol: {symbol}\n"
+                #         f"Direction: {direction_emoji} {direction} Breakout\n"
+                #         f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                #         f"Time: {date} - {bar_status}\n"
+                #         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                #         f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                #         f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                #         f"Box Age: {result.get('box_age', 0)} bars\n"
+                #         f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                #         f"{'='*30}\n"
+                #     )
                 elif strategy == 'consolidation_breakout':
-                    # Get volume info (existing)
+                    # Get volume info
                     volume_usd = result.get('volume_usd', 0)
                     volume_ratio = result.get('volume_ratio', 0)
                     direction = result.get('direction', 'Unknown')
                     direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
                     
-                    # NEW: Strong indicator and channel ratio
-                    # strong_indicator = "🔥 STRONG (Channel)" if result.get('strong', False) else ""
-                    channel_ratio = result.get('channel_ratio', 1.0)
-                    channel_ratio_text = f"Channel Ratio: {channel_ratio:.2f}" if channel_ratio != 1.0 else "No Channel"
-                    
                     signal_message = (
                         f"Symbol: {symbol}\n"
-                        f"Direction: {direction_emoji} {direction} Breakout {strong_indicator}\n"
-                        f"{channel_ratio_text}\n"
+                        f"Direction: {direction_emoji} {direction} Breakout\n"
                         f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
                         f"Time: {date} - {bar_status}\n"
                         f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
@@ -314,50 +325,7 @@ class UnifiedScanner:
                         f"Low vs SMA: {result.get('low_vs_sma_pct', 0):+.2f}%\n"
                         f"{volume_period} Volume: ${volume_usd:,.2f}\n"
                         f"{'='*30}\n"
-                    )
-                elif strategy == 'trend_breakout':
-                    volume_usd = result.get('volume_usd', 0)
-                    volume_ratio = result.get('volume_ratio', 0)
-                    direction = result.get('direction', 'Up')
-                    direction_emoji = "🟢"  # Always bullish for trend breakout
-                    
-                    signal_message = (
-                        f"Symbol: {symbol}\n"
-                        f"Direction: {direction_emoji} {direction} Breakout\n"
-                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
-                        f"Time: {date} - {bar_status}\n"
-                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
-                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
-                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
-                        f"Breakup Trigger: {'✅' if result.get('breakup_trigger') else '❌'}\n"
-                        f"ATR Trend: {'✅' if result.get('atr_trend_active') else '❌'}\n"
-                        f"Above HA High: {'✅' if result.get('above_ha_high') else '❌'}\n"
-                        f"MA Bullish: {'✅' if result.get('ma_bullish') else '❌'}\n"
-                        f"HA Momentum: {result.get('ha_momentum', 0):,.4f}\n"
-                        f"Pivot Break: ${result.get('pivot_high_break', 0):,.4f}\n"
-                        f"{'='*30}\n"
-                    )
-                elif strategy == 'pin_up':
-                    volume_usd = result.get('volume_usd', 0)
-                    volume_ratio = result.get('volume_ratio', 0)
-                    direction = result.get('direction', 'Up')
-                    direction_emoji = "🟢"  # Always bullish for pin up
-                    
-                    signal_message = (
-                        f"Symbol: {symbol}\n"
-                        f"Direction: {direction_emoji} {direction} Pin\n"
-                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
-                        f"Time: {date} - {bar_status}\n"
-                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
-                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
-                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
-                        f"Bars Since Bottom: {result.get('bars_since_bullish_bottom', 0)}\n"
-                        f"Bottom High: ${result.get('bullish_bottom_high', 0):,.8f}\n"
-                        f"Above Prev High: {'✅' if result.get('close_above_prev_high') else '❌'}\n"
-                        f"Top Percentile: {'✅' if result.get('in_top_percentile') else '❌'}\n"
-                        f"Spread Favorable: {'✅' if result.get('spread_favorable') else '❌'}\n"
-                        f"{'='*30}\n"
-                    )
+                    ) 
                 elif strategy == 'hbs_breakout':
                     # Extract needed values
                     volume_usd = result.get('volume_usd', 0)
@@ -403,16 +371,359 @@ class UnifiedScanner:
                     # Build component indicators (only add when present)
                     component_lines = []
                     if has_sma50:
-                        # More descriptive SMA50 status
-                        if sma50_type == "pre_breakout":
-                            sma_status = "Pre-Breakout"
-                        elif sma50_type == "classic_breakout":
-                            sma_status = "Full Breakout"
-                        else:
-                            sma_status = sma50_type.replace('_', ' ').title()
-                        
-                        sma_indicator = f"✅ 50SMA: {sma_status}"
-                        if sma50_strength and sma50_strength != sma50_type:
+                        sma_indicator = f"✅ 50SMA: {sma50_type}"
+                        if sma50_strength:
+                            sma_indicator += f" ({sma50_strength})"
+                        component_lines.append(sma_indicator)
+                    
+                    if has_engulfing:
+                        component_lines.append(f"✅ Engulfing Reversal: {confluence_direction}")
+                    
+                    # Format price and volume
+                    price_formatted = f"${result.get('close', 0):,.2f}"
+                    volume_formatted = f"${volume_usd:,.1f}M" if volume_usd >= 1000000 else f"${volume_usd:,.0f}"
+                    
+                    # Create enhanced message with components only when present
+                    signal_message = (
+                        f"<a href='{tv_link}'>{symbol}</a> | {price_formatted} | Vol: {volume_formatted}\n"
+                        f"Time: {date} | {bar_status}\n"
+                        f"----\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Context: {context_display}\n"
+                        f"Is extreme: {extreme_display}\n"
+                        f"Direction: {direction_display}\n"
+                    )
+                    
+                    # Add component lines only if they exist
+                    if component_lines:
+                        signal_message += "----\n"
+                        for component in component_lines:
+                            signal_message += f"{component}\n"
+                    
+                    signal_message += f"{'='*30}\n"
+                elif strategy == 'volume_surge':
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {result.get('volume_ratio', 0):,.2f}x\n"
+                        f"{volume_period} Volume: ${result.get('volume_usd', 0):,.2f}\n"
+                        f"Score: {result.get('score', 0):,.2f}\n"
+                        f"Price Extreme: {result.get('price_extreme', 'Unknown')}\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'weak_uptrend':
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume: ${result.get('volume_usd', 0):,.2f}\n"
+                        f"Uptrend age: {result.get('uptrend_age', 0)} bars\n"
+                        f"Weakness level: {result.get('weakness_level', 0):,.2f}\n"
+                        f"{'='*30}\n"
+                    )
+                else:
+                    # Generic format for any other strategy
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"{'='*30}\n"
+                    )
+                
+                # Add signal message to list
+                signal_messages.append(signal_message)
+            
+            # Initialize Telegram app
+            app = self.telegram_apps[strategy]
+            if not hasattr(app, '_initialized') or not app._initialized:
+                await app.initialize()
+                await app.start()
+            
+            # Send messages to each chat ID with smart chunking
+            for chat_id in chat_ids:
+                # Maximum message size for Telegram
+                max_message_size = 4000  # Slightly less than the 4096 limit to be safe
+                
+                # Start with the header
+                current_chunk = header
+                
+                # Process each signal message
+                for signal in signal_messages:
+                    # If adding this signal would exceed the limit, send the current chunk and start a new one
+                    if len(current_chunk) + len(signal) > max_message_size:
+                        # Send the current chunk
+                        await app.bot.send_message(
+                            chat_id=chat_id, 
+                            text=current_chunk, 
+                            parse_mode='HTML', 
+                            disable_web_page_preview=True
+                        )
+                        # Wait to avoid rate limits
+                        await asyncio.sleep(0.3)
+                        # Start a new chunk with the header
+                        current_chunk = header + signal
+                    else:
+                        # Add the signal to the current chunk
+                        current_chunk += signal
+                
+                # Send the final chunk if there's anything left
+                if current_chunk and current_chunk != header:
+                    await app.bot.send_message(
+                        chat_id=chat_id, 
+                        text=current_chunk, 
+                        parse_mode='HTML', 
+                        disable_web_page_preview=True
+                    )
+                    
+        except Exception as e:
+            logging.error(f"Error sending {strategy} Telegram message: {str(e)}")
+
+    async def send_to_event_db(self, strategy, results):
+        if not results or strategy not in self.telegram_config or strategy not in self.telegram_apps:
+            return
+        try:
+            chat_ids = self.telegram_config[strategy].get('chat_ids', [])
+            if not chat_ids:
+                return
+            timeframe = self.exchange_client.timeframe
+            title = self.strategy_titles.get(strategy, strategy.replace('_', ' ').title())
+            
+            # Create the header message
+            header = f"🚨 {title} - {self.exchange_name} {timeframe.upper()}\n\n"
+            
+            # Create a list to store complete signal messages
+            signal_messages = []
+            
+            # Generate a complete message for each signal
+            for result in results:
+                symbol = result.get('symbol', 'Unknown')
+                tv_symbol = symbol.replace('_', '').replace('-', '')
+                tv_timeframe = timeframe.upper() if timeframe.upper() != "4H" else "240"
+                suffix = ".P" if "Futures" in self.exchange_name else ""
+                tv_exchange = self.exchange_name.upper().replace(" ", "").replace("FUTURES", "").replace("SPOT", "")
+                tv_link = f"https://www.tradingview.com/chart/?symbol={tv_exchange}:{tv_symbol}{suffix}&interval={tv_timeframe}"
+                # date = result.get('date') or result.get('timestamp') #If we want 2025-01-15 14:30:00 instead of 2025-01-15
+                raw_date = result.get('date') or result.get('timestamp')
+                # Format date to remove time component
+                if hasattr(raw_date, 'strftime'):
+                    date = raw_date.strftime('%Y-%m-%d')
+                elif isinstance(raw_date, str):
+                    # Handle string dates by parsing and reformatting
+                    try:
+                        parsed_date = pd.to_datetime(raw_date)
+                        date = parsed_date.strftime('%Y-%m-%d')
+                    except:
+                        date = raw_date  # Fallback to original if parsing fails
+                else:
+                    date = str(raw_date)
+                bar_status = "CURRENT BAR" if result.get('current_bar') else "Last Closed Bar"
+                volume_period = "Weekly" if timeframe == "1w" else \
+                                "4-Day" if timeframe == "4d" else \
+                                "3-Day" if timeframe == "3d" else \
+                                "2-Day" if timeframe == "2d" else \
+                                "Daily" if timeframe == "1d" else \
+                                "4-Hour"
+    
+                # Create message specific to each strategy type
+                if strategy in self.vsa_detectors:
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {result.get('volume_ratio', 0):,.2f}x\n"
+                        f"{volume_period} Volume: ${result.get('volume', 0):,.2f}\n"
+                        f"Close Off Low: {result.get('close_off_low', 0):,.1f}%\n"
+                        f"Angular Ratio: {result.get('arctan_ratio', np.nan):.2f}\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'pin_down':
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {result.get('volume_ratio', 0):,.2f}x\n"
+                        f"{volume_period} Volume: ${result.get('volume_usd', 0):,.2f}\n"
+                        f"Bearish top bars ago: {result.get('bearishtop_dist', 0)}\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'confluence':
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {result.get('volume_ratio', 0):,.2f}x\n"
+                        f"{volume_period} Volume: ${result.get('volume_usd', 0):,.2f}\n"
+                        f"Close Off Low: {result.get('close_off_low', 0):,.1f}%\n"
+                        f"Momentum Score: {result.get('momentum_score', 0):,.2f}\n"
+                        f"Components: Vol={result.get('high_volume', False)}, "
+                        f"Spread={result.get('spread_breakout', False)}, "
+                        f"Mom={result.get('momentum_breakout', False)}\n"
+                    )
+                    # Add engulfing reversal info if present
+                    if result.get('is_engulfing_reversal', False):
+                        signal_message += f"Pattern:⚡Engulfing Reversal!\n"
+                    signal_message += f"{'='*30}\n"
+                elif strategy == 'consolidation':
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Box High: ${result.get('box_hi', 0):,.8f}\n"
+                        f"Box Low: ${result.get('box_lo', 0):,.8f}\n"
+                        f"Box Age: {result.get('box_age', 0)} bars\n"
+                        f"Bars Inside: {result.get('bars_inside', 0)}/{result.get('min_bars_inside_req', 0)}\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f}%\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'consolidation_breakout':
+                    # Get volume info
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Unknown')
+                    direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Box Age: {result.get('box_age', 0)} bars\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'channel':
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    channel_direction = result.get('channel_direction', 'Unknown')
+                    color_indicator = "🔴" if channel_direction == "Upwards" else "🟢" if channel_direction == "Downwards" else "⚪"
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Status: {color_indicator} Ongoing Channel\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Channel Direction: {channel_direction}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Channel Age: {result.get('channel_age', 0)} bars\n"
+                        f"Slope: {result.get('percent_growth_per_bar', 0):+.2f}% per bar\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'channel_breakout':  # NEW: Channel Breakout message format
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Unknown')
+                    direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
+                    channel_direction = result.get('channel_direction', 'Unknown')
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"                        
+                        f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Channel Direction: {channel_direction}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Channel Age: {result.get('channel_age', 0)} bars\n"
+                        f"Channel Slope: {result.get('channel_slope', 0):,.4f}\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'wedge_breakout':
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Unknown')
+                    direction_emoji = "🟢" if direction == "Up" else "🔴" if direction == "Down" else "⚪"
+                    channel_direction = result.get('channel_direction', 'Unknown')
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Direction: {direction_emoji} {direction} Breakout\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Wedge Direction: {channel_direction}\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Volume Ratio: {volume_ratio:,.2f}x\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"Wedge Age: {result.get('channel_age', 0)} bars\n"
+                        f"Slope: {result.get('percent_growth_per_bar', 0):+.2f}% per bar\n"
+                        f"Height %: {result.get('height_pct', 0):,.2f} (≤ {result.get('max_height_pct_req', 0):,.2f})\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'sma50_breakout':
+                    volume_usd = result.get('volume_usd', 0)
+                    volume_ratio = result.get('volume_ratio', 0)
+                    direction = result.get('direction', 'Up')
+                    direction_emoji = "🟢"  # Always bullish for SMA breakout
+                    breakout_type = result.get('breakout_type', 'classic_breakout')
+                    breakout_strength = result.get('breakout_strength', 'Unknown')
+                    
+                    signal_message = (
+                        f"Symbol: {symbol}\n"
+                        f"Close Position: {result.get('close_position_indicator', '○○○')} ({result.get('close_position_pct', 0):,.1f}%)\n"
+                        f"Time: {date} - {bar_status}\n"
+                        f"Close: <a href='{tv_link}'>${result.get('close', 0):,.8f}</a>\n"
+                        f"Price vs SMA: {result.get('price_vs_sma_pct', 0):+.2f}%\n"
+                        f"Low vs SMA: {result.get('low_vs_sma_pct', 0):+.2f}%\n"
+                        f"{volume_period} Volume: ${volume_usd:,.2f}\n"
+                        f"{'='*30}\n"
+                    ) 
+                elif strategy == 'hbs_breakout':
+                    # Extract needed values
+                    volume_usd = result.get('volume_usd', 0)
+                    direction = result.get('direction', 'Unknown')
+                    
+                    # Determine direction emoji and text
+                    if direction == "Up":
+                        direction_display = "🟢⬆️ UP"
+                    elif direction == "Down":
+                        direction_display = "🔴⬇️ DOWN"
+                    else:
+                        direction_display = "⚪ NEUTRAL"
+                    
+                    # Determine context (what type of breakout)
+                    context = result.get('breakout_type', '')
+                    if context == 'both':
+                        context_display = "📈 Both"
+                    elif context == 'channel_breakout':
+                        context_display = "␥ Channel BO"
+                    else:
+                        context_display = "☲ Consolidation BO"
+                    
+                    # Determine extreme conditions
+                    has_extreme_volume = result.get('extreme_volume', False)
+                    has_extreme_spread = result.get('extreme_spread', False)
+                    
+                    if has_extreme_volume and has_extreme_spread:
+                        extreme_display = "🟠 Volume and Spread"
+                    elif has_extreme_volume:
+                        extreme_display = "🟠 Volume"
+                    elif has_extreme_spread:
+                        extreme_display = "🟠 Spread"
+                    else:
+                        extreme_display = "🟢 None"
+                    
+                    # Enhanced component analysis
+                    has_sma50 = result.get('has_sma50_breakout', False)
+                    has_engulfing = result.get('has_engulfing_reversal', False)
+                    sma50_type = result.get('sma50_breakout_type', '')
+                    sma50_strength = result.get('sma50_breakout_strength', '')
+                    confluence_direction = result.get('confluence_direction', 'Up')
+                    
+                    # Build component indicators (only add when present)
+                    component_lines = []
+                    if has_sma50:
+                        sma_indicator = f"✅ 50SMA: {sma50_type}"
+                        if sma50_strength:
                             sma_indicator += f" ({sma50_strength})"
                         component_lines.append(sma_indicator)
                     
@@ -878,8 +1189,6 @@ class UnifiedScanner:
                             'min_bars_inside_req': result.get('min_bars_inside_req'),
                             'height_pct': result.get('height_pct'),
                             'max_height_pct_req': result.get('max_height_pct_req'),
-                            # 'strong': result.get('strong', False),
-                            # 'channel_ratio': result.get('channel_ratio', 1.0),
                             'close_position_indicator': close_indicator,
                             'close_position_pct': close_pos_pct,
                         }
@@ -915,8 +1224,6 @@ class UnifiedScanner:
                             'min_bars_inside_req': result.get('min_bars_inside_req'),
                             'height_pct': result.get('height_pct'),
                             'max_height_pct_req': result.get('max_height_pct_req'),
-                            # 'strong': result.get('strong', False),
-                            # 'channel_ratio': result.get('channel_ratio', 1.0),
                             'close_position_indicator': close_indicator,
                             'close_position_pct': close_pos_pct,
                         }
@@ -1247,106 +1554,7 @@ class UnifiedScanner:
                             'close_position_pct': close_pos_pct,
                         }
                         logging.info(f"{strategy} detected for {symbol} (current bar)")
-            # Handle trend_breakout strategy
-            elif strategy == 'trend_breakout':
-                from custom_strategies import detect_trend_breakout
-                
-                # Check last closed bar
-                if len(df) > 1:
-                    detected, result = detect_trend_breakout(df, check_bar=-2)
-                    if detected:
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'direction': result.get('direction'),
-                            'date': result.get('timestamp', df.index[-2]),
-                            'close': df['close'].iloc[-2],
-                            'current_bar': False,
-                            'volume_usd': result.get('volume_usd'),
-                            'volume_ratio': result.get('volume_ratio'),
-                            'close_position_indicator': result.get('close_position_indicator'),
-                            'close_position_pct': result.get('close_position_pct'),
-                            'breakup_trigger': result.get('breakup_trigger'),
-                            'atr_trend_active': result.get('atr_trend_active'),
-                            'above_ha_high': result.get('above_ha_high'),
-                            'ma_bullish': result.get('ma_bullish'),
-                            'ha_momentum': result.get('ha_momentum'),
-                            'ha_momentum_increase': result.get('ha_momentum_increase'),
-                            'pivot_high_break': result.get('pivot_high_break'),
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
             
-                # Check current bar
-                if len(df) > 2:
-                    detected, result = detect_trend_breakout(df, check_bar=-1)
-                    if detected:
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'direction': result.get('direction'),
-                            'date': result.get('timestamp', df.index[-1]),
-                            'close': df['close'].iloc[-1],
-                            'current_bar': True,
-                            'volume_usd': result.get('volume_usd'),
-                            'volume_ratio': result.get('volume_ratio'),
-                            'close_position_indicator': result.get('close_position_indicator'),
-                            'close_position_pct': result.get('close_position_pct'),
-                            'breakup_trigger': result.get('breakup_trigger'),
-                            'atr_trend_active': result.get('atr_trend_active'),
-                            'above_ha_high': result.get('above_ha_high'),
-                            'ma_bullish': result.get('ma_bullish'),
-                            'ha_momentum': result.get('ha_momentum'),
-                            'ha_momentum_increase': result.get('ha_momentum_increase'),
-                            'pivot_high_break': result.get('pivot_high_break'),
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (current bar)")
-
-            # Handle pin_up strategy
-            elif strategy == 'pin_up':
-                from custom_strategies import detect_pin_up
-                
-                # Check last closed bar
-                if len(df) > 1:
-                    detected, result = detect_pin_up(df, check_bar=-2)
-                    if detected:
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'direction': result.get('direction'),
-                            'date': result.get('timestamp', df.index[-2]),
-                            'close': df['close'].iloc[-2],
-                            'current_bar': False,
-                            'volume_usd': result.get('volume_usd'),
-                            'volume_ratio': result.get('volume_ratio'),
-                            'close_position_indicator': result.get('close_position_indicator'),
-                            'close_position_pct': result.get('close_position_pct'),
-                            'bars_since_bullish_bottom': result.get('bars_since_bullish_bottom'),
-                            'bullish_bottom_high': result.get('bullish_bottom_high'),
-                            'close_above_prev_high': result.get('close_above_prev_high'),
-                            'in_top_percentile': result.get('in_top_percentile'),
-                            'spread_favorable': result.get('spread_favorable'),
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (last closed bar)")
-            
-                # Check current bar
-                if len(df) > 2:
-                    detected, result = detect_pin_up(df, check_bar=-1)
-                    if detected:
-                        results[strategy] = {
-                            'symbol': symbol,
-                            'direction': result.get('direction'),
-                            'date': result.get('timestamp', df.index[-1]),
-                            'close': df['close'].iloc[-1],
-                            'current_bar': True,
-                            'volume_usd': result.get('volume_usd'),
-                            'volume_ratio': result.get('volume_ratio'),
-                            'close_position_indicator': result.get('close_position_indicator'),
-                            'close_position_pct': result.get('close_position_pct'),
-                            'bars_since_bullish_bottom': result.get('bars_since_bullish_bottom'),
-                            'bullish_bottom_high': result.get('bullish_bottom_high'),
-                            'close_above_prev_high': result.get('close_above_prev_high'),
-                            'in_top_percentile': result.get('in_top_percentile'),
-                            'spread_favorable': result.get('spread_favorable'),
-                        }
-                        logging.info(f"{strategy} detected for {symbol} (current bar)")
-                        
             # Handle hbs_breakout strategy (combination of consolidation_breakout + confluence)
             elif strategy == 'hbs_breakout':
                 from custom_strategies import detect_consolidation_breakout, detect_confluence, detect_channel_breakout, detect_sma50_breakout
@@ -1466,7 +1674,7 @@ class UnifiedScanner:
                 
         return results
 
-    async def scan_all_markets(self):
+    async def scan_all_markets(self, event_db_send=False):
         try:
             await self.init_session()
             symbols = await self.exchange_client.get_all_spot_symbols()
@@ -1491,6 +1699,8 @@ class UnifiedScanner:
             for strategy, results in all_results.items():
                 if results and strategy in self.telegram_config:
                     await self.send_telegram_message(strategy, results)
+                if event_db_send:
+                    
             return all_results
         except Exception as e:
             logging.error(f"Error in scan_all_markets: {str(e)}")
@@ -1498,7 +1708,7 @@ class UnifiedScanner:
         finally:
             await self.close_session()
 
-async def run_scanner(exchange, timeframe, strategies, telegram_config=None, min_volume_usd=None):
+async def run_scanner(exchange, timeframe, strategies, telegram_config=None, event_db_send=None, min_volume_usd=None):
     from exchanges import (MexcFuturesClient, GateioFuturesClient, BinanceFuturesClient, 
                           BybitFuturesClient, BinanceSpotClient, BybitSpotClient, 
                           GateioSpotClient, KucoinSpotClient, MexcSpotClient)
@@ -1525,4 +1735,4 @@ async def run_scanner(exchange, timeframe, strategies, telegram_config=None, min
     
     client = client_class(timeframe=timeframe)
     scanner = UnifiedScanner(client, strategies, telegram_config, min_volume_usd)
-    return await scanner.scan_all_markets()
+    return await scanner.scan_all_markets(event_db_send)

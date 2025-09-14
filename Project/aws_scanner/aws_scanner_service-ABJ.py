@@ -80,104 +80,55 @@ futures_exchanges = [
     "mexc_futures"
 ]
 
-futures_scan_configs = [
+futures_scan_configs = []
+
+spot_scan_configs = [
     # {
     #     "timeframe": "4h",
-    #     "strategies": [ "volume_surge"],
-    #     "exchanges": futures_exchanges,
+    #     "strategies": ["hbs_breakout"],
+    #     "exchanges": spot_exchanges,
     #     "users": ["default"],
     #     "send_telegram": True,
     #     "min_volume_usd": None
     # },
     {
         "timeframe": "1d",
-        "strategies": ["reversal_bar", "volume_surge"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
+        "strategies": ["confluence", "consolidation_breakout", "channel_breakout", "sma50_breakout", "loaded_bar"],
+        "exchanges": spot_exchanges + ["binance_futures"],
+        "users": ["default", "user1", "user2"],
+        "send_telegram": False,
         "min_volume_usd": None
     },
     {
         "timeframe": "2d",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
+        "strategies": ["confluence", "consolidation_breakout", "channel_breakout", "sma50_breakout", "loaded_bar"],
+        "exchanges": spot_exchanges + ["binance_futures"],
+        "users": ["default", "user1", "user2"],
+        "send_telegram": False,
         "min_volume_usd": None
     },
     {
         "timeframe": "3d",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
+        "strategies": ["confluence", "consolidation_breakout", "channel_breakout", "sma50_breakout", "loaded_bar"],
+        "exchanges": spot_exchanges + ["binance_futures"],
+        "users": ["default", "user1", "user2"],
+        "send_telegram": False,
         "min_volume_usd": None
     },
     {
         "timeframe": "4d",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
+        "strategies": ["confluence", "consolidation_breakout", "channel_breakout", "sma50_breakout", "loaded_bar"],
+        "exchanges": spot_exchanges + ["binance_futures"],
+        "users": ["default", "user1", "user2"],
+        "send_telegram": False,
         "min_volume_usd": None
     },
     {
         "timeframe": "1w",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    }
-]
-
-spot_scan_configs = [
-    {
-        "timeframe": "4h",
-        "strategies": ["breakout_bar"],
-        "exchanges": spot_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "1d",
-        "strategies": ["breakout_bar", "test_bar", "loaded_bar", "volume_surge"],
-        "exchanges": spot_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "2d",
-        "strategies": ["confluence", "start_bar", "breakout_bar", "volume_surge", "loaded_bar",
-        "exchanges": spot_exchanges,
-        "users": ["default", "user2"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "3d",
-        "strategies": ["confluence", "start_bar", "breakout_bar", "volume_surge", "loaded_bar"],
-        "exchanges": spot_exchanges,
-        "users": ["default", "user2"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "4d",
-        "strategies": ["confluence", "start_bar", "breakout_bar", "volume_surge", "loaded_bar"],
-        "exchanges": spot_exchanges,
-        "users": ["default", "user2"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "1w",
-        "strategies": ["confluence", "start_bar", "breakout_bar", "volume_surge", "loaded_bar", "test_bar"],
-        "exchanges": spot_exchanges,
-        "users": ["default", "user2"],
-        "send_telegram": True,
+        "strategies": ["confluence", "consolidation_breakout", "channel_breakout", "sma50_breakout", "loaded_bar"],
+        "exchanges": spot_exchanges + ["binance_futures"],
+        "users": ["default", "user1", "user2"],
+        "send_telegram": False,
         "min_volume_usd": None
     }
 ]

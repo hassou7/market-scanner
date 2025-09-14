@@ -1,10 +1,10 @@
 #!/bin/bash
 # Setup script for Market Scanner Service on AWS
-# Updated to support 3d and 4d timeframes with confluence strategy
+# Updated to support Version 2.7 with enhanced HBS breakout and optimized data fetching
 
 set -e
 
-echo "=== Setting up Market Scanner Service with Multi-Timeframe Support ==="
+echo "=== Setting up Market Scanner Service Version 2.7 ==="
 
 # Get the absolute path to the script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -48,25 +48,53 @@ source "$PROJECT_ROOT/venv/bin/activate"
 echo "Upgrading pip..."
 pip install --upgrade pip
 
-# Install dependencies
-echo "Installing required dependencies..."
-pip install python-telegram-bot==20.7
-pip install pandas>=2.0.0
-pip install aiohttp>=3.8.0
-pip install tqdm>=4.64.0
-pip install numpy>=1.24.0
-pip install nest-asyncio>=1.5.0
+# Install dependencies from requirements.txt if available, otherwise install manually
+if [ -f "$PROJECT_ROOT/requirements.txt" ]; then
+    echo "Installing dependencies from requirements.txt..."
+    pip install -r "$PROJECT_ROOT/requirements.txt"
+else
+    echo "Installing required dependencies manually..."
+    pip install python-telegram-bot==20.7
+    pip install pandas>=2.0.0
+    pip install aiohttp>=3.8.0
+    pip install tqdm>=4.64.0
+    pip install numpy>=1.24.0
+    pip install nest-asyncio>=1.5.0
+fi
 
 # Verify installations
 echo "Verifying installations..."
 python -c "import pandas, aiohttp, tqdm, numpy; print('✓ All dependencies installed successfully')"
 
-# Set up the systemd service
+# Set up the systemd service with CORRECT virtual environment path
 echo "Setting up systemd service..."
-sudo cp "$SCRIPT_DIR/market-scanner.service" /etc/systemd/system/
+sudo tee /etc/systemd/system/market-scanner.service > /dev/null << EOF
+[Unit]
+Description=Cryptocurrency Market Scanner Service
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=$PROJECT_ROOT/venv/bin/python $SCRIPT_DIR/aws_scanner_service.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=market-scanner
+
+# Environment variables
+Environment=PYTHONPATH=$PROJECT_ROOT
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 sudo systemctl daemon-reload
 sudo systemctl enable market-scanner.service
-echo "✓ Systemd service configured"
+echo "✓ Systemd service configured with virtual environment"
 
 # Create log rotation config
 echo "Setting up log rotation..."
@@ -113,13 +141,15 @@ chmod +x "$SCRIPT_DIR/status.sh"
 echo "✓ Status script created at $SCRIPT_DIR/status.sh"
 
 echo ""
-echo "=== Setup Complete! ==="
+echo "=== Setup Complete! Version 2.7 Features Active ==="
 echo ""
-echo "New Features Added:"
-echo "• 3d and 4d timeframe support"
-echo "• Confluence strategy for spot exchanges"
-echo "• Enhanced logging and monitoring"
-echo "• Improved error handling and restart logic"
+echo "Version 2.7 New Features:"
+echo "• Enhanced HBS Breakout with SMA50 and Engulfing Reversal component detection"
+echo "• Optimized API fetch limits ensuring sufficient data for SMA50 calculations"
+echo "• New strategies: Channel, Wedge Breakout, SMA50 Breakout"
+echo "• Clean date formatting in Telegram messages (YYYY-MM-DD HH:00)"
+echo "• Weekly data consistency across all exchanges"
+echo "• Multi-component signal analysis for HBS breakout"
 echo ""
 echo "To manage the service:"
 echo "• Start:    sudo systemctl start market-scanner.service"
@@ -139,6 +169,9 @@ echo "• 3d scans: Every 3 days at 00:01 UTC (from Mar 20, 2025)"
 echo "• 4d scans: Every 4 days at 00:01 UTC (from Mar 22, 2025)"
 echo "• 1w scans: Weekly on Mondays at 00:01 UTC"
 echo ""
-echo "Confluence Strategy Recipients:"
-echo "• Default user (Houssem): All strategies"
-echo "• User2 (Moez): Confluence signals on 2d, 3d, 4d, 1w timeframes"
+echo "Enhanced Strategies Active:"
+echo "• HBS Breakout: Reports SMA50 and Engulfing Reversal components"
+echo "• Channel: Ongoing diagonal channel monitoring"
+echo "• Wedge Breakout: Diagonal consolidation wedge breakout detection"
+echo "• SMA50 Breakout: Clean moving average breakout detection"
+echo "• All strategies: Optimized data fetching for reliable analysis"

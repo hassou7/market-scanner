@@ -13,6 +13,8 @@ This module provides various pattern detection strategies including:
 - Channel breakout detection
 - Wedge breakout detection
 - 50sma breakout
+- Trend breakout (from HBS indicator vX)
+- Pin up pattern detection (from HBS indicator vX)
 """
 
 # Import all strategy detection functions
@@ -26,6 +28,8 @@ from .consolidation_breakout import detect_consolidation_breakout
 from .channel_breakout import detect_channel_breakout
 from .wedge_breakout import detect_wedge_breakout
 from .sma50_breakout import detect_sma50_breakout
+from .trend_breakout import detect_trend_breakout
+from .pin_up import detect_pin_up
 
 # Export all functions for easy import
 __all__ = [
@@ -39,4 +43,7 @@ __all__ = [
     'detect_channel_breakout',
     'detect_wedge_breakout',
     'detect_sma50_breakout'
+    'detect_trend_breakout',
+    'detect_pin_up'
+    
 ]
