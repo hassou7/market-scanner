@@ -1,4 +1,4 @@
-# custom_strategies/consolidation_breakout.py
+# custom_strategies/consolidation_breakout.py v1
 
 # min df number = 23
 

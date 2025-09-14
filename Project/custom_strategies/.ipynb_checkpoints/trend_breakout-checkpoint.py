@@ -122,17 +122,17 @@ def detect_trend_breakout(
     habhigh = np.maximum(d['high'], np.maximum(habopen, habclose))
     hablow = np.minimum(d['low'], np.minimum(habopen, habclose))
     
-    # Smooth HA calculations
+    # Smooth HA calculations - FIX: Preserve index
     jsmooth_habhigh = jsmooth(habhigh, smooth, power)
     jsmooth_hablow = jsmooth(hablow, smooth, power)
-    s_habhigh = (pd.Series(jsmooth_habhigh).ewm(span=ha_ma_length).mean() + 
-                pd.Series(jsmooth_habhigh).rolling(ha_ma_length).apply(lambda x: np.average(x, weights=np.arange(1, len(x)+1)), raw=True)) / 2
+    s_habhigh = (pd.Series(jsmooth_habhigh, index=d.index).ewm(span=ha_ma_length).mean() + 
+                pd.Series(jsmooth_habhigh, index=d.index).rolling(ha_ma_length).apply(lambda x: np.average(x, weights=np.arange(1, len(x)+1)), raw=True)) / 2
     
-    # Moving averages for trend detection
+    # Moving averages for trend detection - FIX: Preserve index
     jsmooth_habclose = jsmooth(habclose, smooth, power)
     jsmooth_habopen = jsmooth(habopen, smooth, power)
-    ma1 = pd.Series(jsmooth_habclose).ewm(span=1).mean()
-    ma2 = pd.Series(jsmooth_habopen).ewm(span=1).mean()
+    ma1 = pd.Series(jsmooth_habclose, index=d.index).ewm(span=1).mean()
+    ma2 = pd.Series(jsmooth_habopen, index=d.index).ewm(span=1).mean()
     
     # Swing Pivots & Breakouts
     LBL = 2; LBR = 2
@@ -156,11 +156,19 @@ def detect_trend_breakout(
     
     upwego_bool = d['upwego'].fillna(False)
     
+    # FIX: Ensure all Series have same index for comparison
+    ma1_values = ma1.reindex(d.index, fill_value=0)
+    ma2_values = ma2.reindex(d.index, fill_value=0)
+    
+    # Convert numpy arrays to Series with proper index for comparison
+    habclose_series = pd.Series(habclose, index=d.index)
+    habopen_series = pd.Series(habopen, index=d.index)
+    
     flagUp_trend = (condition_flagUp_trend & 
                    atr_trend & 
                    upwego_bool & 
-                   (ma1 > ma2) & 
-                   (np.abs(habclose - habopen) > np.abs(pd.Series(habclose).shift(1) - pd.Series(habopen).shift(1))))
+                   (ma1_values > ma2_values) & 
+                   (np.abs(habclose_series - habopen_series) > np.abs(habclose_series.shift(1) - habopen_series.shift(1))))
     
     # Check specified bar
     i_check = check_bar if check_bar >= 0 else len(d) + check_bar
@@ -186,7 +194,7 @@ def detect_trend_breakout(
     else:
         close_indicator = "○○●"
     
-    # Additional metrics
+    # Additional metrics - FIX: Safe array access
     ha_momentum = habclose[i_check] - habopen[i_check] if i_check < len(habclose) else 0
     prev_ha_momentum = habclose[i_check-1] - habopen[i_check-1] if i_check > 0 and i_check-1 < len(habclose) else 0
     
@@ -203,7 +211,7 @@ def detect_trend_breakout(
         "breakup_trigger": bool(d['upwego'].iloc[i_check]),
         "atr_trend_active": bool(atr_trend.iloc[i_check]),
         "above_ha_high": bool(condition_flagUp_trend.iloc[i_check]),
-        "ma_bullish": bool(ma1.iloc[i_check] > ma2.iloc[i_check]),
+        "ma_bullish": bool(ma1_values.iloc[i_check] > ma2_values.iloc[i_check]),
         "ha_momentum": float(ha_momentum),
         "ha_momentum_increase": bool(abs(ha_momentum) > abs(prev_ha_momentum)),
         "pivot_high_break": float(d['close'].iloc[i_check] - d['ph_range'].iloc[i_check]) if not pd.isna(d['ph_range'].iloc[i_check]) else 0,

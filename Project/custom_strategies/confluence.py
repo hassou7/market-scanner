@@ -1,3 +1,5 @@
+# custom_strategies/confluence.py
+
 """
 Confluence Strategy - Custom Pattern Detection (Pine v5 aligned, bullish + bearish)
 

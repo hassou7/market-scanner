@@ -8,6 +8,8 @@ This strategy detects clean breakout signals when:
 2. Last N bars (configurable, default 7) did NOT close above 50SMA + 0.2*ATR(7)
 3. Optional: Close > 50SMA - 0.2*ATR(7) to catch pre-breakouts
 
+PRIORITY LOGIC: Classic breakouts are prioritized over pre-breakouts when both conditions are met.
+
 The clean breakout filter ensures we catch initial breakout moments rather than 
 continuation moves, avoiding late entries on already-extended price action.
 
@@ -115,12 +117,34 @@ def detect_sma50_breakout(df, sma_period=50, atr_period=7, atr_multiplier=0.2,
         
         clean_breakout_filter.iloc[i] = not last_n_bars_above
     
-    # Choose detection method based on use_pre_breakout flag
+    # PRIORITY LOGIC: Classic breakout takes priority over pre-breakout
+    # First check for classic breakout
+    classic_signal = classic_breakout & clean_breakout_filter
+    
     if use_pre_breakout:
-        breakout_signal = pre_breakout & clean_breakout_filter
-        breakout_type = "pre_breakout"
+        # If classic breakout exists, use it; otherwise use pre-breakout
+        pre_signal = pre_breakout & clean_breakout_filter
+        
+        # Priority: Classic breakout > Pre-breakout
+        # Check the specific bar we're analyzing
+        idx = check_bar
+        if idx < 0:
+            idx = len(df) + idx  # Convert negative index to positive
+        if not 0 <= idx < len(df):
+            return False, {}
+            
+        # Check if classic breakout exists at this bar
+        if not pd.isna(classic_signal.iloc[idx]) and classic_signal.iloc[idx]:
+            breakout_signal = classic_signal
+            breakout_type = "classic_breakout"
+        elif not pd.isna(pre_signal.iloc[idx]) and pre_signal.iloc[idx]:
+            breakout_signal = pre_signal
+            breakout_type = "pre_breakout"
+        else:
+            return False, {}
     else:
-        breakout_signal = classic_breakout & clean_breakout_filter
+        # Only classic breakout
+        breakout_signal = classic_signal
         breakout_type = "classic_breakout"
     
     # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -177,9 +201,9 @@ def detect_sma50_breakout(df, sma_period=50, atr_period=7, atr_multiplier=0.2,
     # Determine if this is a clean breakout
     is_clean_breakout = clean_breakout_filter.iloc[idx]
     
-    # Determine breakout strength
-    if use_pre_breakout:
-        # For pre-breakout, measure distance from pre-breakout threshold
+    # Determine breakout strength based on the actual breakout type detected
+    if breakout_type == "pre_breakout":
+        # For pre-breakout, check if it's also a classic breakout
         breakout_strength = "Strong" if df['close'].iloc[idx] > sma50.iloc[idx] else "Pre-breakout"
     else:
         # For classic breakout, measure how far above SMA

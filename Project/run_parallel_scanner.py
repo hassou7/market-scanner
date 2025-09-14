@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 #run_parallel_scanner.py
 """
 Parallel Market Scanner Runner
