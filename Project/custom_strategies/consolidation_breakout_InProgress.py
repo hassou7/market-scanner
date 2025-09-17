@@ -1,6 +1,6 @@
 # custom_strategies/box_breakout.py v2
 
-# min df number = 23
+# version with channel inside. Strong breakout is a breakout from the channel and the box. Weak breakout is a breakout only from the channel or from the box occuring after a channel breakout. 
 
 import pandas as pd
 import numpy as np
@@ -10,7 +10,7 @@ def detect_consolidation_breakout(
     df: pd.DataFrame,
     check_bar: int = -1,
     use_log: bool = True,
-    channel_multiplier: float = 0.7,
+    channel_multiplier: float = 0.6,
     use_midrange: bool = True,
     channel_max_pct: float = 100.0,
     max_height_pct: float = 35.0
