@@ -20,7 +20,7 @@ class BybitClient(BaseExchangeClient):
     def __init__(self, timeframe="1d"):
         self.base_url = "https://api.bybit.com"
         self.batch_size = 20
-        self.request_delay = 0.1  # Add a small delay between requests to avoid rate limits
+        self.request_delay = 0.5  # Add a small delay between requests to avoid rate limits
         super().__init__(timeframe)
 
     def _get_interval_map(self):

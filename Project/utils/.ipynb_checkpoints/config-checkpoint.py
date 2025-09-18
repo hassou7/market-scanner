@@ -34,7 +34,9 @@ STRATEGY_CHANNELS = {
     "channel_breakout": "start_trend",
     "wedge_breakout": "start_trend",
     "sma50_breakout": "start_trend",
-    "hbs_breakout": "hbs_breakout"
+    "trend_breakout": "start_trend",
+    "hbs_breakout": "hbs_breakout", # Composed strategy
+    "vs_wakeup": "hbs_breakout", # Composed strategy
 }
 
 # Volume thresholds for different timeframes
@@ -77,3 +79,8 @@ def get_telegram_config(strategies, users):
                 }
     
     return config
+
+DATABASE_CONFIG = {
+    "enabled": False,  # Set to False to disable database insertion
+    "connection_string": "postgresql+psycopg2://sfeventuser:krpd!45t5@c1348.synology.infomaniak.ch:10656/sf_event_db",
+}

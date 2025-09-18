@@ -1,10 +1,10 @@
 #!/bin/bash
-# Setup script for Market Scanner Service on AWS
-# Updated to support Version 2.7 with enhanced HBS breakout and optimized data fetching
+# Setup script for Optimized Market Scanner Service on AWS
+# Updated to support native/composed strategy prioritization and efficient data fetching
 
 set -e
 
-echo "=== Setting up Market Scanner Service Version 2.7 ==="
+echo "=== Setting up Optimized Market Scanner Service ==="
 
 # Get the absolute path to the script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -60,33 +60,57 @@ else
     pip install tqdm>=4.64.0
     pip install numpy>=1.24.0
     pip install nest-asyncio>=1.5.0
+    pip install psycopg2-binary>=2.9.0  # For database integration
+    pip install sqlalchemy>=2.0.0       # For database models
 fi
 
 # Verify installations
 echo "Verifying installations..."
 python -c "import pandas, aiohttp, tqdm, numpy; print('✓ All dependencies installed successfully')"
 
-# Set up the systemd service with CORRECT virtual environment path
-echo "Setting up systemd service..."
+# Set up the systemd service with optimized configuration
+echo "Setting up optimized systemd service..."
 sudo tee /etc/systemd/system/market-scanner.service > /dev/null << EOF
 [Unit]
-Description=Cryptocurrency Market Scanner Service
+Description=Optimized Cryptocurrency Market Scanner Service
 After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
 User=ec2-user
+Group=ec2-user
 WorkingDirectory=$SCRIPT_DIR
 ExecStart=$PROJECT_ROOT/venv/bin/python $SCRIPT_DIR/aws_scanner_service.py
 Restart=always
-RestartSec=10
+RestartSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=market-scanner
 
-# Environment variables
+# Environment variables for optimization
 Environment=PYTHONPATH=$PROJECT_ROOT
 Environment=PYTHONUNBUFFERED=1
+Environment=FAST_MAX_EXCHANGES=4
+Environment=SLOW_MAX_EXCHANGES=2
+Environment=EXCHANGE_STAGGER_MS=250
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=80%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$SCRIPT_DIR/logs
+PrivateTmp=true
+PrivateNetwork=false
+
+# Graceful shutdown
+TimeoutStopSec=30
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target
@@ -94,14 +118,14 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable market-scanner.service
-echo "✓ Systemd service configured with virtual environment"
+echo "✓ Optimized systemd service configured with virtual environment"
 
-# Create log rotation config
+# Create enhanced log rotation config
 echo "Setting up log rotation..."
 sudo tee /etc/logrotate.d/market-scanner > /dev/null << EOF
 $SCRIPT_DIR/logs/*.log {
     daily
-    rotate 14
+    rotate 30
     compress
     missingok
     notifempty
@@ -112,7 +136,7 @@ $SCRIPT_DIR/logs/*.log {
     endscript
 }
 EOF
-echo "✓ Log rotation configured (14 days retention)"
+echo "✓ Log rotation configured (30 days retention)"
 
 # Set proper permissions
 echo "Setting permissions..."
@@ -121,35 +145,56 @@ chmod 755 "$SCRIPT_DIR/logs"
 chown -R ec2-user:ec2-user "$SCRIPT_DIR/logs"
 echo "✓ Permissions set"
 
-# Create a simple status script
+# Create enhanced status script with optimization info
 cat > "$SCRIPT_DIR/status.sh" << 'EOF'
 #!/bin/bash
-echo "=== Market Scanner Service Status ==="
+echo "=== Optimized Market Scanner Service Status ==="
 sudo systemctl status market-scanner.service --no-pager -l
 
-echo -e "\n=== Recent Logs ==="
-tail -20 ~/market-scanner/Project/aws_scanner/logs/scanner_service.log
+echo -e "\n=== Recent Performance Logs ==="
+tail -30 ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | grep -E "(Priority|signals found|Session complete|Starting prioritized)"
+
+echo -e "\n=== Cache and Session Management ==="
+tail -10 ~/market-scanner/Project/aws_scanner/logs/scanner_service.log | grep -E "(cache|Cache|session|Session)"
 
 echo -e "\n=== Service Commands ==="
 echo "Start:   sudo systemctl start market-scanner.service"
 echo "Stop:    sudo systemctl stop market-scanner.service"
 echo "Restart: sudo systemctl restart market-scanner.service"
 echo "Logs:    tail -f ~/market-scanner/Project/aws_scanner/logs/scanner_service.log"
+echo "Status:  ~/market-scanner/Project/aws_scanner/status.sh"
 EOF
 
 chmod +x "$SCRIPT_DIR/status.sh"
-echo "✓ Status script created at $SCRIPT_DIR/status.sh"
+echo "✓ Enhanced status script created at $SCRIPT_DIR/status.sh"
 
 echo ""
-echo "=== Setup Complete! Version 2.7 Features Active ==="
+echo "=== Optimized Setup Complete! ==="
 echo ""
-echo "Version 2.7 New Features:"
-echo "• Enhanced HBS Breakout with SMA50 and Engulfing Reversal component detection"
-echo "• Optimized API fetch limits ensuring sufficient data for SMA50 calculations"
-echo "• New strategies: Channel, Wedge Breakout, SMA50 Breakout"
-echo "• Clean date formatting in Telegram messages (YYYY-MM-DD HH:00)"
-echo "• Weekly data consistency across all exchanges"
-echo "• Multi-component signal analysis for HBS breakout"
+echo "Key Optimizations Active:"
+echo "• Native/Composed Strategy Prioritization:"
+echo "  - Priority 1: Fast Native Strategies (confluence, consolidation_breakout, etc.)"
+echo "  - Priority 2: Fast Composed Strategies (hbs_breakout, vs_wakeup)"
+echo "  - Priority 3: Fast Futures-Only Strategies (reversal_bar, pin_down)"
+echo "  - Priority 4: Slow Native Strategies"
+echo "  - Priority 5: Slow Composed Strategies"
+echo ""
+echo "• Efficient Data Fetching:"
+echo "  - Single 1d fetch for aggregated timeframes (2d, 3d, 4d)"
+echo "  - Smart cache management between sessions"
+echo "  - Optimized API usage to prevent rate limiting"
+echo ""
+echo "• Exchange Classification:"
+echo "  - Fast: Binance, Bybit, Gate.io (spot & futures)"
+echo "  - Slow: KuCoin, MEXC (with careful rate limiting)"
+echo ""
+echo "Strategy Coverage:"
+echo "• Native Strategies (all timeframes): confluence, consolidation_breakout,"
+echo "  channel_breakout, loaded_bar, trend_breakout, pin_up, sma50_breakout"
+echo "• Composed Strategies (all timeframes): hbs_breakout, vs_wakeup"
+echo "• Futures-Only (all timeframes): reversal_bar, pin_down"
+echo ""
+echo "Timeframes: 1d, 2d, 3d, 4d, 1w (all strategies on all timeframes)"
 echo ""
 echo "To manage the service:"
 echo "• Start:    sudo systemctl start market-scanner.service"
@@ -161,17 +206,20 @@ echo "To view logs:"
 echo "• Live logs: tail -f $SCRIPT_DIR/logs/scanner_service.log"
 echo "• All logs:  ls -la $SCRIPT_DIR/logs/"
 echo ""
-echo "Timeframe Schedule:"
-echo "• 4h scans: Every 4 hours (00:01, 04:01, 08:01, 12:01, 16:01, 20:01 UTC)"
-echo "• 1d scans: Daily at 00:01 UTC"
-echo "• 2d scans: Every 2 days at 00:01 UTC (from Mar 20, 2025)"
-echo "• 3d scans: Every 3 days at 00:01 UTC (from Mar 20, 2025)"
-echo "• 4d scans: Every 4 days at 00:01 UTC (from Mar 22, 2025)"
-echo "• 1w scans: Weekly on Mondays at 00:01 UTC"
+echo "Daily Execution Schedule (00:01 UTC):"
+echo "1. Fast Native Strategies (fastest DB population)"
+echo "2. Fast Composed Strategies (derived analysis)"  
+echo "3. Fast Futures-Only Strategies (specialized patterns)"
+echo "4. Slow Native Strategies (comprehensive coverage)"
+echo "5. Slow Composed Strategies (complete analysis)"
 echo ""
-echo "Enhanced Strategies Active:"
-echo "• HBS Breakout: Reports SMA50 and Engulfing Reversal components"
-echo "• Channel: Ongoing diagonal channel monitoring"
-echo "• Wedge Breakout: Diagonal consolidation wedge breakout detection"
-echo "• SMA50 Breakout: Clean moving average breakout detection"
-echo "• All strategies: Optimized data fetching for reliable analysis"
+echo "Environment Variables:"
+echo "• FAST_MAX_EXCHANGES=4 (concurrent fast exchanges)"
+echo "• SLOW_MAX_EXCHANGES=2 (concurrent slow exchanges)"
+echo "• EXCHANGE_STAGGER_MS=250 (stagger timing)"
+echo ""
+echo "Resource Management:"
+echo "• Memory limit: 2GB"
+echo "• CPU quota: 80%"
+echo "• Log retention: 30 days with daily rotation"
+echo "• Automatic cache clearing for aggregated timeframes"

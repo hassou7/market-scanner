@@ -3,246 +3,215 @@
 """
 50SMA Breakout Strategy - Custom Pattern Detection
 
-This strategy detects clean breakout signals when:
-1. Close > 50SMA and Low < 50SMA (classic breakout)
-2. Last N bars (configurable, default 7) did NOT close above 50SMA + 0.2*ATR(7)
-3. Optional: Close > 50SMA - 0.2*ATR(7) to catch pre-breakouts
+This strategy detects clean breakout signals with **priority** and **strength** rules:
 
-PRIORITY LOGIC: Classic breakouts are prioritized over pre-breakouts when both conditions are met.
+TYPES (mutually exclusive, priority enforced):
+1) "regular"       : Close > SMA50 AND Low < SMA50 (classic breakout)
+2) "pre_breakout"  : Close > (SMA50 - ATR*mult) AND Low < SMA50, but NOT "regular"
 
-The clean breakout filter ensures we catch initial breakout moments rather than 
-continuation moves, avoiding late entries on already-extended price action.
+CLEAN FILTER:
+- The last N bars (default 7), excluding the checked bar, must NOT have closed above (SMA50 + ATR*mult).
+  This avoids continuation/late entries and focuses on initial breakouts.
 
-The strategy follows the same structure as other custom strategies with 
-detection for both current and previous closed bars.
+STRENGTH (only for "regular"):
+- Compute SMA50 location inside the bar as: sma_loc = (SMA50 - Low) / (High - Low)  in [0..1]
+- "Strong" if sma_loc < 0.35
+- "Weak"   if sma_loc >= 0.35
+- "pre_breakout" carries no strength (None)
+
+PARAMS:
+- sma_period: SMA length (default 50)
+- atr_period: ATR length (default 7)
+- atr_multiplier: multiplier for pre/upper thresholds (default 0.2)
+- use_pre_breakout: whether to allow pre-breakout detection (default True)
+- clean_lookback: bars to check for the clean filter (default 7)
+- check_bar: which bar to evaluate (-1 current, -2 last closed, etc.)
+
+RETURNS:
+(bool, dict):
+- bool        : True if a signal is detected on the specified bar, else False
+- dict        : metrics payload (see bottom of function for keys)
 """
 
 import pandas as pd
 import numpy as np
 from datetime import datetime
 
-def atr(df, period=14):
-    """Calculate Average True Range"""
-    high = df['high']
-    low = df['low']
-    close = df['close']
-    prev_close = close.shift(1)
-    
-    # True Range calculation
-    tr1 = high - low
-    tr2 = np.abs(high - prev_close)
-    tr3 = np.abs(low - prev_close)
-    
-    true_range = np.maximum(tr1, np.maximum(tr2, tr3))
-    
-    # Average True Range
-    return true_range.rolling(period).mean()
 
-def detect_sma50_breakout(df, sma_period=50, atr_period=7, atr_multiplier=0.2, 
-                         use_pre_breakout=True, clean_lookback=7, check_bar=-1):
+def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Calculate Average True Range (simple rolling mean)."""
+    high = df["high"]
+    low = df["low"]
+    close = df["close"]
+    prev_close = close.shift(1)
+
+    tr1 = high - low
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+
+    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return true_range.rolling(period, min_periods=period).mean()
+
+
+def detect_sma50_breakout(
+    df,
+    sma_period: int = 50,
+    atr_period: int = 7,
+    atr_multiplier: float = 0.2,
+    use_pre_breakout: bool = True,
+    clean_lookback: int = 7,
+    check_bar: int = -1,
+):
     """
-    Detect 50SMA breakout signals
-    
-    Parameters:
-    df : pandas.DataFrame
-        DataFrame with OHLCV data
-    sma_period : int
-        Simple Moving Average period (default: 50)
-    atr_period : int
-        ATR period for pre-breakout detection (default: 7)
-    atr_multiplier : float
-        ATR multiplier for pre-breakout threshold (default: 0.2)
-    use_pre_breakout : bool
-        Enable pre-breakout detection (default: False)
-    clean_lookback : int
-        Number of previous bars to check for clean breakout (default: 7)
-    check_bar : int
-        Which bar to check (-1 for current, -2 for last closed)
-    
-    Returns:
-    tuple: (bool, dict) - (detected, result_data)
+    Detect 50SMA breakout signals with priority (regular > pre_breakout) and strength rules.
+
+    See module docstring for full behavior.
     """
-    
-    if df is None or len(df) < max(sma_period, atr_period, clean_lookback) + 2:
+    # Basic guards
+    if df is None:
         return False, {}
-    
-    # Convert to DataFrame if needed
     df = pd.DataFrame(df) if not isinstance(df, pd.DataFrame) else df.copy()
-    
-    # Ensure all required columns exist
-    required_cols = ['open', 'high', 'low', 'close', 'volume']
-    for col in required_cols:
+    if len(df) < max(sma_period, atr_period, clean_lookback) + 2:
+        return False, {}
+
+    # Ensure required columns exist
+    for col in ("open", "high", "low", "close", "volume"):
         if col not in df.columns:
             df[col] = np.nan
-    
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    # CALCULATE INDICATORS
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    
-    # Calculate 50SMA
-    sma50 = df['close'].rolling(sma_period).mean()
-    
-    # Calculate ATR for pre-breakout detection
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # INDICATORS
+    # ──────────────────────────────────────────────────────────────────────────
+    sma50 = df["close"].rolling(sma_period, min_periods=sma_period).mean()
     atr_values = atr(df, atr_period)
-    
-    # Pre-breakout threshold (50SMA - 0.2*ATR)
+
     pre_breakout_threshold = sma50 - (atr_multiplier * atr_values)
-    
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    # BREAKOUT DETECTION LOGIC
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    
-    # Calculate upper breakout threshold (50SMA + 0.2*ATR)
     upper_breakout_threshold = sma50 + (atr_multiplier * atr_values)
-    
-    # Current bar conditions
-    # Classic breakout: Close > 50SMA and Low < 50SMA
-    classic_breakout = (df['close'] > sma50) & (df['low'] < sma50)
-    
-    # Pre-breakout: Close > (50SMA - 0.2*ATR) and Low < 50SMA
-    pre_breakout = (df['close'] > pre_breakout_threshold) & (df['low'] < sma50)
-    
-    # Clean breakout filter: Last N bars should NOT have closed above 50SMA + 0.2*ATR
-    # This ensures we catch initial breakouts, not continuation moves
-    clean_breakout_filter = pd.Series(True, index=df.index)
-    
-    for i in range(clean_lookback, len(df)):
-        # Check if any of the last N bars (excluding current) closed above upper threshold
-        last_n_bars_above = False
-        for lookback in range(1, clean_lookback + 1):  # Check bars -1, -2, ..., -N relative to current
-            if i - lookback >= 0:
-                if df['close'].iloc[i - lookback] > upper_breakout_threshold.iloc[i - lookback]:
-                    last_n_bars_above = True
-                    break
-        
-        clean_breakout_filter.iloc[i] = not last_n_bars_above
-    
-    # PRIORITY LOGIC: Classic breakout takes priority over pre-breakout
-    # First check for classic breakout
-    classic_signal = classic_breakout & clean_breakout_filter
-    
-    if use_pre_breakout:
-        # If classic breakout exists, use it; otherwise use pre-breakout
-        pre_signal = pre_breakout & clean_breakout_filter
-        
-        # Priority: Classic breakout > Pre-breakout
-        # Check the specific bar we're analyzing
-        idx = check_bar
-        if idx < 0:
-            idx = len(df) + idx  # Convert negative index to positive
-        if not 0 <= idx < len(df):
-            return False, {}
-            
-        # Check if classic breakout exists at this bar
-        if not pd.isna(classic_signal.iloc[idx]) and classic_signal.iloc[idx]:
-            breakout_signal = classic_signal
-            breakout_type = "classic_breakout"
-        elif not pd.isna(pre_signal.iloc[idx]) and pre_signal.iloc[idx]:
-            breakout_signal = pre_signal
-            breakout_type = "pre_breakout"
-        else:
-            return False, {}
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # CLEAN FILTER
+    # "No closes above (SMA50 + mult*ATR) in the last N bars (excluding current)"
+    # Efficient vector form: check condition and use shifted rolling window.
+    # above == 1 where prior bar closed above upper threshold
+    above = (df["close"] > upper_breakout_threshold).astype("float32")
+    # Shift by 1 to exclude current bar, then rolling sum over clean_lookback
+    recent_above_sum = (
+        above.shift(1)
+        .rolling(clean_lookback, min_periods=1)
+        .sum()
+        .fillna(0)
+    )
+    clean_breakout_filter = (recent_above_sum == 0)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # BAR INDEX RESOLUTION
+    # ──────────────────────────────────────────────────────────────────────────
+    idx = len(df) + check_bar if check_bar < 0 else check_bar
+    if not (0 <= idx < len(df)):
+        return False, {}
+
+    # If we don't have SMA/ATR computed at idx, exit early
+    if pd.isna(sma50.iloc[idx]) or pd.isna(atr_values.iloc[idx]):
+        return False, {}
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # SIGNAL CONDITIONS (evaluate at idx only)
+    # Priority: "regular" first; if false, then "pre_breakout" (if enabled)
+    # ──────────────────────────────────────────────────────────────────────────
+    is_clean = bool(clean_breakout_filter.iloc[idx])
+
+    # Regular (classic) breakout
+    high_i = df["high"].iloc[idx]
+    low_i = df["low"].iloc[idx]
+    close_i = df["close"].iloc[idx]
+    sma_i = sma50.iloc[idx]
+    pre_thr_i = pre_breakout_threshold.iloc[idx]
+
+    regular_here = bool((close_i > sma_i) and (low_i < sma_i) and is_clean)
+
+    pre_here = False
+    if use_pre_breakout and not regular_here:
+        pre_here = bool((close_i > pre_thr_i) and (low_i < sma_i) and is_clean)
+
+    if regular_here:
+        breakout_type = "regular"
+    elif pre_here:
+        breakout_type = "pre_breakout"
     else:
-        # Only classic breakout
-        breakout_signal = classic_signal
-        breakout_type = "classic_breakout"
-    
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    # SIGNAL VALIDATION
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    
-    # Check the specified bar
-    idx = check_bar
-    if idx < 0:
-        idx = len(df) + idx  # Convert negative index to positive
-    if not 0 <= idx < len(df):
         return False, {}
-    
-    # Check if breakout signal exists for the specified bar
-    if pd.isna(breakout_signal.iloc[idx]) or not breakout_signal.iloc[idx]:
-        return False, {}
-    
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    # ADDITIONAL ANALYSIS
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    
-    # Calculate how far price is above/below SMA
-    price_vs_sma = ((df['close'].iloc[idx] - sma50.iloc[idx]) / sma50.iloc[idx] * 100) if not pd.isna(sma50.iloc[idx]) else 0
-    
-    # Calculate how far low is below SMA
-    low_vs_sma = ((df['low'].iloc[idx] - sma50.iloc[idx]) / sma50.iloc[idx] * 100) if not pd.isna(sma50.iloc[idx]) else 0
-    
-    # Volume analysis
-    volume_mean = df['volume'].rolling(7).mean().iloc[idx]
-    volume_ratio = df['volume'].iloc[idx] / volume_mean if volume_mean > 0 else 0
-    volume_usd = df['volume'].iloc[idx] * df['close'].iloc[idx]
-    
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # METRICS & STRENGTH
+    # ──────────────────────────────────────────────────────────────────────────
+    bar_range = max(float(high_i - low_i), 0.0)
+    volume_i = float(df["volume"].iloc[idx]) if not pd.isna(df["volume"].iloc[idx]) else 0.0
+
+    # Price vs SMA (pct) & low vs SMA (pct)
+    price_vs_sma = ((close_i - sma_i) / sma_i * 100.0) if sma_i and not pd.isna(sma_i) else 0.0
+    low_vs_sma = ((low_i - sma_i) / sma_i * 100.0) if sma_i and not pd.isna(sma_i) else 0.0
+
+    # Volume analytics
+    vol_mean_7 = df["volume"].rolling(7, min_periods=1).mean().iloc[idx]
+    volume_ratio = (volume_i / vol_mean_7) if (vol_mean_7 and vol_mean_7 > 0) else 0.0
+    volume_usd = volume_i * float(close_i) if not pd.isna(close_i) else 0.0
+
     # Bar characteristics
-    bar_range = df['high'].iloc[idx] - df['low'].iloc[idx]
-    close_off_low = (df['close'].iloc[idx] - df['low'].iloc[idx]) / bar_range * 100 if bar_range > 0 else 0
-    
-    # Calculate how far the last N bars were from upper threshold (for analysis)
+    close_off_low = ((close_i - low_i) / bar_range * 100.0) if bar_range > 0 else 0.0
+
+    # Distances of previous bars from upper threshold (for diagnostics)
     last_n_bars_distance = []
-    for lookback in range(1, clean_lookback + 1):
-        if idx - lookback >= 0:
-            distance = df['close'].iloc[idx - lookback] - upper_breakout_threshold.iloc[idx - lookback]
-            last_n_bars_distance.append(distance)
+    for lb in range(1, clean_lookback + 1):
+        j = idx - lb
+        if j >= 0 and not (pd.isna(df["close"].iloc[j]) or pd.isna(upper_breakout_threshold.iloc[j])):
+            last_n_bars_distance.append(float(df["close"].iloc[j] - upper_breakout_threshold.iloc[j]))
         else:
-            last_n_bars_distance.append(0)
-    
-    # Calculate average distance of last N bars from upper threshold
-    avg_last_n_distance = np.mean(last_n_bars_distance) if last_n_bars_distance else 0
-    
-    # ATR analysis
-    current_atr = atr_values.iloc[idx] if not pd.isna(atr_values.iloc[idx]) else 0
-    atr_threshold_distance = abs(df['close'].iloc[idx] - pre_breakout_threshold.iloc[idx]) if not pd.isna(pre_breakout_threshold.iloc[idx]) else 0
-    upper_threshold = upper_breakout_threshold.iloc[idx] if not pd.isna(upper_breakout_threshold.iloc[idx]) else 0
-    
-    # Determine if this is a clean breakout
-    is_clean_breakout = clean_breakout_filter.iloc[idx]
-    
-    # Determine breakout strength based on the actual breakout type detected
-    if breakout_type == "pre_breakout":
-        # For pre-breakout, check if it's also a classic breakout
-        breakout_strength = "Strong" if df['close'].iloc[idx] > sma50.iloc[idx] else "Pre-breakout"
-    else:
-        # For classic breakout, measure how far above SMA
-        if price_vs_sma > 2.0:
-            breakout_strength = "Strong"
-        elif price_vs_sma > 0.5:
-            breakout_strength = "Moderate"
+            last_n_bars_distance.append(0.0)
+    avg_last_n_distance = float(np.mean(last_n_bars_distance)) if last_n_bars_distance else 0.0
+
+    current_atr = float(atr_values.iloc[idx]) if not pd.isna(atr_values.iloc[idx]) else 0.0
+    upper_thr_i = float(upper_breakout_threshold.iloc[idx]) if not pd.isna(upper_breakout_threshold.iloc[idx]) else 0.0
+    atr_threshold_distance = abs(float(close_i - pre_thr_i)) if not (pd.isna(close_i) or pd.isna(pre_thr_i)) else 0.0
+
+    # Strength logic (only for "regular")
+    if breakout_type == "regular":
+        if bar_range > 0 and not pd.isna(sma_i):
+            sma_loc = (sma_i - low_i) / bar_range  # 0..1 from low->high
+            breakout_strength = "Strong" if sma_loc < 0.35 else "Weak"
         else:
+            # Degenerate bar or missing values → default to "Weak"
+            sma_loc = None
             breakout_strength = "Weak"
-    
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    # BUILD RESULT
-    # ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    
+    else:
+        sma_loc = None
+        breakout_strength = None  # No strength for pre_breakout
+
+    # Build result
     bar_idx = df.index[idx]
-    
     result = {
-        'timestamp': bar_idx,
-        'close_price': df['close'].iloc[idx],
-        'volume': df['volume'].iloc[idx],
-        'volume_usd': volume_usd,
-        'volume_ratio': volume_ratio,
-        'close_off_low': close_off_low,
-        'bar_range': bar_range,
-        'sma50': sma50.iloc[idx],
-        'atr': current_atr,
-        'price_vs_sma_pct': price_vs_sma,
-        'low_vs_sma_pct': low_vs_sma,
-        'breakout_type': breakout_type,
-        'breakout_strength': breakout_strength,
-        'pre_breakout_threshold': pre_breakout_threshold.iloc[idx] if not pd.isna(pre_breakout_threshold.iloc[idx]) else 0,
-        'upper_breakout_threshold': upper_threshold,
-        'atr_threshold_distance': atr_threshold_distance,
-        'is_clean_breakout': is_clean_breakout,
-        'clean_lookback_period': clean_lookback,
-        'avg_last_n_distance': avg_last_n_distance,
-        'direction': 'Up',  # SMA breakout is always bullish
-        'current_bar': check_bar == -1,
-        'date': bar_idx.strftime('%Y-%m-%d %H:%M:%S') if hasattr(bar_idx, 'strftime') else str(bar_idx)
+        "timestamp": bar_idx,
+        "close_price": float(close_i),
+        "volume": volume_i,
+        "volume_usd": float(volume_usd),
+        "volume_ratio": float(volume_ratio),
+        "close_off_low": float(close_off_low),
+        "bar_range": float(bar_range),
+        "sma50": float(sma_i),
+        "atr": float(current_atr),
+        "price_vs_sma_pct": float(price_vs_sma),
+        "low_vs_sma_pct": float(low_vs_sma),
+        "breakout_type": breakout_type,           # "regular" or "pre_breakout"
+        "breakout_strength": breakout_strength,   # "Strong"/"Weak" or None (for pre_breakout)
+        "pre_breakout_threshold": float(pre_thr_i) if not pd.isna(pre_thr_i) else 0.0,
+        "upper_breakout_threshold": float(upper_thr_i),
+        "atr_threshold_distance": float(atr_threshold_distance),
+        "is_clean_breakout": bool(is_clean),
+        "clean_lookback_period": int(clean_lookback),
+        "avg_last_n_distance": float(avg_last_n_distance),
+        "direction": "Up",                        # by definition of SMA50 breakout
+        "current_bar": (check_bar == -1),
+        "date": bar_idx.strftime("%Y-%m-%d %H:%M:%S") if hasattr(bar_idx, "strftime") else str(bar_idx),
+        # Optional diagnostic (comment out if not needed downstream):
+        # "sma_loc": None if sma_loc is None else float(sma_loc),
     }
-    
+
     return True, result

@@ -1,12 +1,45 @@
 [Unit]
-Description=Cryptocurrency Market Scanner Service
+Description=Optimized Cryptocurrency Market Scanner Service
 After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
+Type=simple
 ExecStart=/usr/bin/python3 /home/ec2-user/market-scanner/Project/aws_scanner/aws_scanner_service.py
 WorkingDirectory=/home/ec2-user/market-scanner/Project
 Restart=always
+RestartSec=30
 User=ec2-user
+Group=ec2-user
+
+# Environment variables for optimization
+Environment="FAST_MAX_EXCHANGES=4"
+Environment="SLOW_MAX_EXCHANGES=2" 
+Environment="EXCHANGE_STAGGER_MS=250"
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=80%
+
+# Logging configuration
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=market-scanner
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/ec2-user/market-scanner/Project/aws_scanner/logs
+PrivateTmp=true
+
+# Network access required
+PrivateNetwork=false
+
+# Graceful shutdown
+TimeoutStopSec=30
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target

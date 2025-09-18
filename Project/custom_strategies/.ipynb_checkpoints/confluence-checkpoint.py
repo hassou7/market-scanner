@@ -8,6 +8,9 @@ Detects confluence signals from Volume, Spread, and Momentum.
 - Keeps all arrays as Series aligned to df.index
 - Uses safe division to avoid NaNs/Inf from zero ranges
 - Normalizes WMA/NaN handling across bull & bear
+- Added volume breakout detection
+- Added bullish confluence_breakout (as confluence_wakeup)
+- Added only_wakeup parameter to detect only volume spread wakeup signals (bullish)
 """
 
 import pandas as pd
@@ -43,10 +46,12 @@ def detect_confluence(
     len_mid: int = 13,
     len_slow: int = 21,
     check_bar: int = -1,
-    is_bullish: bool = True
+    is_bullish: bool = True,
+    only_wakeup: bool = False
 ):
     """
     Detect confluence signals based on Volume, Spread, and Momentum analysis.
+    If only_wakeup is True, detects only bullish confluence_wakeup signals.
     Returns: (detected: bool, result: dict)
     """
 
@@ -116,6 +121,27 @@ def detect_confluence(
     vol_sma13 = v.rolling(13).mean()
     vol_sma21 = v.rolling(21).mean()
     vol_std21 = v.rolling(21).std()
+    vol_stdv7 = v.rolling(7).std()
+
+    # Volume WMAs for breakout detection
+    vol_wma7  = wma(v, 7)
+    vol_wma13 = wma(v, 13)
+    vol_wma21 = wma(v, 21)
+
+    # Volume breakout: above all WMAs + highest in last 7 bars
+    above_all_vol_wmas = (v > vol_wma7) & (v > vol_wma13) & (v > vol_wma21)
+    highest_vol_7bars = (v == v.rolling(7).max())
+    volume_breakout_wma = above_all_vol_wmas & highest_vol_7bars
+
+    # Vol exceed count for SMA-based breakout
+    vol_exceed_count = (
+        (v > vol_sma7).astype(int) +
+        (v > vol_sma13).astype(int) +
+        (v > vol_sma21).astype(int)
+    )
+    vol_exceed_all = vol_exceed_count >= 3
+    extreme_volume = v > (vol_sma7 + 3.0 * vol_stdv7)
+    volume_breakout_sma = highest_vol_7bars & vol_exceed_all & ~extreme_volume
 
     local_rel_high = pd.Series(False, index=df.index)
     broad_rel_high = pd.Series(False, index=df.index)
@@ -155,7 +181,6 @@ def detect_confluence(
                             break
 
     absolute_high_vol = (v > vol_sma7) & (v > vol_sma13) & (v > vol_sma21)
-    extreme_volume = (v > (vol_sma21 + 3.0 * vol_std21)) & (_safe_div(v, vol_sma21, 0) > 3)
     high_volume = (serious_volume | absolute_high_vol | broad_rel_high | local_rel_high)  # optionally & ~extreme_volume
 
     # ── SPREAD ─────────────────────────────────────────────────────────────────
@@ -177,9 +202,12 @@ def detect_confluence(
     bear_spread_wakeup = (close_pos_bear > 0.7) & above_all_wmas_spread
     bear_spread_breakout = bear_spread_wakeup & (rng == rng.rolling(3).max())
 
-    spread_sma21 = rng.rolling(21).mean()
-    spread_std21 = rng.rolling(21).std()
-    extreme_spread = (rng > (spread_sma21 + 2.0 * spread_std21)) & (_safe_div(rng, spread_sma21, 0) > 2)
+    spread_sma13 = rng.rolling(13).mean()
+    spread_std13 = rng.rolling(13).std()
+    extreme_spread = rng > (spread_sma13 + 3.0 * spread_std13)
+
+    # Range breakout for confluence_wakeup (bullish)
+    range_breakout = (rng == rng.rolling(7).max()) & above_all_wmas_spread & ~extreme_spread & (close_pos_bull > 0.3)
 
     # ── MOMENTUM ───────────────────────────────────────────────────────────────
     # Context range anchored from the highest-range bar in the last ctx_len bars
@@ -272,22 +300,32 @@ def detect_confluence(
     score_sel = score if is_bullish else bear_score
     direction_base = "Up" if is_bullish else "Down"
 
+    # Bullish confluence_wakeup (breakout)
+    prev_range_breakout = range_breakout.shift(1).fillna(False)
+    is_confluence_wakeup = (c > pc) & volume_breakout_sma & range_breakout & ~prev_range_breakout
+
     # Resolve check_bar
     idx = check_bar if check_bar >= 0 else (len(df) + check_bar)
     if not (0 <= idx < len(df)):
         return False, {}
 
-    detected = bool(confluence.iloc[idx])
-
-    # Check for engulfing reversal
-    is_engulfing_reversal = False
-    if idx > 0:
-        if is_bullish:
-            is_engulfing_reversal = bool(bear_confluence.iloc[idx-1]) and bool(bull_confluence.iloc[idx])
-        else:
-            is_engulfing_reversal = bool(bull_confluence.iloc[idx-1]) and bool(bear_confluence.iloc[idx])
-
-    direction = f"{direction_base} Reversal" if is_engulfing_reversal else direction_base
+    # Determine detected based on only_wakeup
+    if only_wakeup:
+        if not is_bullish:
+            return False, {"reason": "only_wakeup requires is_bullish=True"}
+        detected = bool(is_confluence_wakeup.iloc[idx])
+        direction = "Up Wakeup"
+        is_engulfing_reversal = False  # Skip engulfing for wakeup
+    else:
+        detected = bool(confluence.iloc[idx])
+        # Check for engulfing reversal
+        is_engulfing_reversal = False
+        if idx > 0:
+            if is_bullish:
+                is_engulfing_reversal = bool(bear_confluence.iloc[idx-1]) and bool(bull_confluence.iloc[idx])
+            else:
+                is_engulfing_reversal = bool(bull_confluence.iloc[idx-1]) and bool(bear_confluence.iloc[idx])
+        direction = f"{direction_base} Reversal" if is_engulfing_reversal else direction_base
 
     # Metrics snapshot
     vol_mean7 = vol_sma7.iloc[idx]
@@ -307,6 +345,7 @@ def detect_confluence(
         "date": df.index[idx].strftime("%Y-%m-%d %H:%M:%S") if hasattr(df.index[idx], "strftime") else str(df.index[idx]),
         "direction": direction,
         "current_bar": (check_bar == -1),
+        "only_wakeup": only_wakeup,
 
         "close_price": float(c.iloc[idx]),
         "volume": float(v.iloc[idx]),
@@ -317,15 +356,17 @@ def detect_confluence(
 
         "momentum_score": momentum_score_value,
         "high_volume": bool(high_volume.iloc[idx]) if pd.notna(high_volume.iloc[idx]) else False,
+        "volume_breakout": bool(volume_breakout_wma.iloc[idx]) if pd.notna(volume_breakout_wma.iloc[idx]) else False,
         "spread_breakout": bool(spread_breakout_sel.iloc[idx]) if pd.notna(spread_breakout_sel.iloc[idx]) else False,
         "momentum_breakout": bool(momentum_breakout_sel.iloc[idx]) if pd.notna(momentum_breakout_sel.iloc[idx]) else False,
         "extreme_volume": bool(extreme_volume.iloc[idx]) if pd.notna(extreme_volume.iloc[idx]) else False,
         "extreme_spread": bool(extreme_spread.iloc[idx]) if pd.notna(extreme_spread.iloc[idx]) else False,
 
+        "is_confluence_wakeup": bool(is_confluence_wakeup.iloc[idx]) if pd.notna(is_confluence_wakeup.iloc[idx]) else False,
         "is_engulfing_reversal": is_engulfing_reversal,
     }
 
     if not detected:
-        result["reason"] = "not_confluence"
+        result["reason"] = "not_confluence" if not only_wakeup else "not_wakeup"
 
     return detected, result

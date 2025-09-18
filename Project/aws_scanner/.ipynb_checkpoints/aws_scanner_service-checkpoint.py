@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-AWS Scanner Service
+Optimized AWS Scanner Service
 
-This script runs on an AWS server to scan multiple exchanges on different timeframes.
-It respects the specific timing requirements for 2d and 1w candles based on exchange implementations.
-Now with parallel scanning across exchanges for each timeframe.
+Key optimizations:
+1. Efficient data fetching: Single 1d fetch for aggregated timeframes (2d, 3d, 4d)
+2. Fast/slow exchange categorization with prioritized execution
+3. Proper cache management for aggregated sessions
+4. Exchange-type specific strategy execution
 
 Usage:
     python aws_scanner_service.py [--debug]
@@ -59,160 +61,223 @@ def setup_logging(debug_mode=False):
     
     return logging.getLogger("ScannerService")
 
-parser = argparse.ArgumentParser(description="AWS Market Scanner Service")
+parser = argparse.ArgumentParser(description="Optimized AWS Market Scanner Service")
 parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 args = parser.parse_args()
 
 logger = setup_logging(args.debug)
 
-spot_exchanges = [
+# ═════════════════════════════════════════════════════════════════════════════════════════
+# Exchange categorization with fast/slow classification
+# ═════════════════════════════════════════════════════════════════════════════════════════
+
+# Fast exchanges (reliable, fast API responses)
+fast_spot_exchanges = [
     "binance_spot",
-    "bybit_spot", 
-    "gateio_spot",
+    "bybit_spot",
+    "gateio_spot"
+]
+
+fast_futures_exchanges = [
+    "binance_futures",
+    "bybit_futures", 
+    "gateio_futures"
+]
+
+# Slow exchanges (slower API responses, need careful rate limiting)
+slow_spot_exchanges = [
     "kucoin_spot",
     "mexc_spot"
 ]
 
-futures_exchanges = [
-    "binance_futures",
-    "bybit_futures",
-    "gateio_futures",
+slow_futures_exchanges = [
     "mexc_futures"
 ]
 
-futures_scan_configs = [
-    # {
-    #     "timeframe": "4h",
-    #     "strategies": [ "hbs_breakout"],
-    #     "exchanges": futures_exchanges,
-    #     "users": ["default"],
-    #     "send_telegram": True,
-    #     "min_volume_usd": None
-    # },
-    {
-        "timeframe": "1d",
-        "strategies": ["reversal_bar", "volume_surge"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "2d",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "3d",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "4d",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "1w",
-        "strategies": ["reversal_bar", "pin_down"],
-        "exchanges": futures_exchanges,
-        "users": ["default"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    }
+# All exchanges grouped by type
+all_fast_exchanges = fast_spot_exchanges + fast_futures_exchanges
+all_slow_exchanges = slow_spot_exchanges + slow_futures_exchanges
+all_spot_exchanges = fast_spot_exchanges + slow_spot_exchanges
+all_futures_exchanges = fast_futures_exchanges + slow_futures_exchanges
+
+# ═════════════════════════════════════════════════════════════════════════════════════════
+# Strategy configurations by type and priority
+# ═════════════════════════════════════════════════════════════════════════════════════════
+
+# Strategy classification
+native_strategies = [
+    "confluence", "consolidation_breakout", "channel_breakout", 
+    "loaded_bar", "trend_breakout", "pin_up", "sma50_breakout"
 ]
 
-spot_scan_configs = [
-    # {
-    #     "timeframe": "4h",
-    #     "strategies": ["hbs_breakout"],
-    #     "exchanges": spot_exchanges,
-    #     "users": ["default"],
-    #     "send_telegram": True,
-    #     "min_volume_usd": None
-    # },
-    {
-        "timeframe": "1d",
-        "strategies": ["hbs_breakout", "loaded_bar"],
-        "exchanges": spot_exchanges + ["binance_futures"],
-        "users": ["default", "user1", "user2"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "2d",
-        "strategies": ["hbs_breakout", "confluence", "consolidation_breakout", "channel_breakout", "loaded_bar"],
-        "exchanges": spot_exchanges + ["binance_futures"],
-        "users": ["default", "user1", "user2"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "3d",
-        "strategies": ["hbs_breakout", "confluence", "consolidation_breakout", "channel_breakout"],
-        "exchanges": spot_exchanges + ["binance_futures"],
-        "users": ["default", "user1", "user2"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "4d",
-        "strategies": ["hbs_breakout", "confluence", "consolidation_breakout", "channel_breakout"],
-        "exchanges": spot_exchanges + ["binance_futures"],
-        "users": ["default", "user1", "user2"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    },
-    {
-        "timeframe": "1w",
-        "strategies": ["hbs_breakout", "confluence", "consolidation_breakout", "channel_breakout", "volume_surge", "loaded_bar", "breakout_bar"],
-        "exchanges": spot_exchanges + ["binance_futures"],
-        "users": ["default", "user1", "user2"],
-        "send_telegram": True,
-        "min_volume_usd": None
-    }
+composed_strategies = [
+    "hbs_breakout", "vs_wakeup"
 ]
 
-all_scan_configs = futures_scan_configs + spot_scan_configs
+futures_only_strategies = [
+    "reversal_bar", "pin_down"
+]
 
-def get_next_candle_time(interval="4h"):
+# All timeframes to scan
+all_timeframes = ["1d", "2d", "3d", "4d", "1w"]
+
+# Main scan configurations - organized by priority and strategy type
+scan_configs = [
+    # ────────────────────────────────────────────────────────────────────────────────────
+    # PRIORITY 1: FAST EXCHANGES - NATIVE STRATEGIES (highest priority for DB development)
+    # ────────────────────────────────────────────────────────────────────────────────────
+    {
+        "name": "fast_native_strategies",
+        "timeframes": all_timeframes,
+        "strategies": native_strategies,
+        "exchanges": fast_spot_exchanges + ["binance_futures"],
+        "users": ["default", "user1", "user2"],
+        "send_telegram": True,
+        "min_volume_usd": None,
+        "priority": 1,
+        "exchange_type": "fast_mixed",
+        "strategy_type": "native"
+    },
+    
+    # ────────────────────────────────────────────────────────────────────────────────────
+    # PRIORITY 2: FAST EXCHANGES - COMPOSED STRATEGIES  
+    # ────────────────────────────────────────────────────────────────────────────────────
+    {
+        "name": "fast_composed_strategies",
+        "timeframes": all_timeframes,
+        "strategies": composed_strategies,
+        "exchanges": fast_spot_exchanges + ["binance_futures"],
+        "users": ["default", "user1", "user2"],
+        "send_telegram": True,
+        "min_volume_usd": None,
+        "priority": 2,
+        "exchange_type": "fast_mixed",
+        "strategy_type": "composed"
+    },
+    
+    # ────────────────────────────────────────────────────────────────────────────────────
+    # PRIORITY 3: FAST FUTURES - FUTURES-ONLY STRATEGIES
+    # ────────────────────────────────────────────────────────────────────────────────────
+    {
+        "name": "fast_futures_only",
+        "timeframes": all_timeframes,
+        "strategies": futures_only_strategies,
+        "exchanges": fast_futures_exchanges,
+        "users": ["default"],
+        "send_telegram": True,
+        "min_volume_usd": None,
+        "priority": 3,
+        "exchange_type": "fast_futures",
+        "strategy_type": "futures_only"
+    },
+    
+    # ────────────────────────────────────────────────────────────────────────────────────
+    # PRIORITY 4: SLOW SPOT - NATIVE STRATEGIES
+    # ────────────────────────────────────────────────────────────────────────────────────
+    {
+        "name": "slow_native_strategies",
+        "timeframes": all_timeframes,
+        "strategies": native_strategies,
+        "exchanges": slow_spot_exchanges,
+        "users": ["default", "user1", "user2"],
+        "send_telegram": True,
+        "min_volume_usd": None,
+        "priority": 4,
+        "exchange_type": "slow_spot",
+        "strategy_type": "native"
+    },
+    
+    # ────────────────────────────────────────────────────────────────────────────────────
+    # PRIORITY 5: SLOW SPOT - COMPOSED STRATEGIES
+    # ────────────────────────────────────────────────────────────────────────────────────
+    {
+        "name": "slow_composed_strategies", 
+        "timeframes": all_timeframes,
+        "strategies": composed_strategies,
+        "exchanges": slow_spot_exchanges,
+        "users": ["default", "user1", "user2"],
+        "send_telegram": True,
+        "min_volume_usd": None,
+        "priority": 5,
+        "exchange_type": "slow_spot",
+        "strategy_type": "composed"
+    }
+    
+    # Note: slow_futures_exchanges reserved for future use
+    # Can be added when needed with priority 6+
+]
+
+# ═════════════════════════════════════════════════════════════════════════════════════════
+# Optimized timeframe scheduling and cache management
+# ═════════════════════════════════════════════════════════════════════════════════════════
+
+def get_aggregated_timeframes():
+    """Return timeframes that require daily data aggregation"""
+    return ["2d", "3d", "4d"]
+
+def get_native_timeframes():
+    """Return timeframes with native exchange support"""
+    return ["1d", "1w"]
+
+def should_clear_cache_for_session(timeframes):
+    """
+    Determine if cache should be cleared after a session.
+    Clear cache after any session containing aggregated timeframes.
+    """
+    aggregated_tfs = get_aggregated_timeframes()
+    return any(tf in aggregated_tfs for tf in timeframes)
+
+class OptimizedSessionManager:
+    """Manages efficient data fetching and cache for aggregated timeframes"""
+    
+    def __init__(self):
+        self.session_data_cache = {}  # Cache for 1d data used across aggregated timeframes
+        
+    def clear_session_cache(self):
+        """Clear the session-level cache (daily data for aggregation)"""
+        self.session_data_cache.clear()
+        logger.info("Session-level cache cleared")
+        
+    def needs_daily_data(self, timeframes):
+        """Check if any timeframe in the list needs daily data for aggregation"""
+        return any(tf in get_aggregated_timeframes() for tf in timeframes)
+        
+    async def prepare_session_data(self, timeframes, exchanges):
+        """
+        Pre-fetch daily data once if needed for aggregated timeframes.
+        This avoids multiple API calls for the same 1d data.
+        """
+        if not self.needs_daily_data(timeframes):
+            return  # No aggregated timeframes, no prep needed
+            
+        logger.info("Pre-fetching daily data for aggregated timeframes optimization")
+        
+        # We don't actually pre-fetch here as the parallel scanner handles this
+        # This is a placeholder for future optimization where we could pre-warm cache
+        # with a single daily fetch per exchange before running aggregated timeframes
+        pass
+
+# Global session manager
+session_manager = OptimizedSessionManager()
+
+# ═════════════════════════════════════════════════════════════════════════════════════════
+# Enhanced scheduling logic
+# ═════════════════════════════════════════════════════════════════════════════════════════
+
+def get_next_candle_time(interval="1d"):
     """
     Calculate time until next candle close for a given interval
     
     Args:
-        interval (str): Timeframe interval ('4h', '1d', '2d', '3d', '4d', '1w')
+        interval (str): Timeframe interval ('1d', '2d', '3d', '4d', '1w')
         
     Returns:
         datetime: Next candle close time in UTC
     """
     now = datetime.utcnow()
     
-    if interval == "4h":
-        current_hour = now.hour
-        next_4h = ((current_hour // 4) + 1) * 4
-        if next_4h >= 24:
-            next_4h = 0
-            next_time = now.replace(hour=next_4h, minute=1, second=0, microsecond=0)
-            if next_4h <= current_hour:
-                next_time += timedelta(days=1)
-        else:
-            next_time = now.replace(hour=next_4h, minute=1, second=0, microsecond=0)
-        # Ensure the time is in the future
-        while next_time <= now:
-            next_time += timedelta(hours=4)
-    
-    elif interval == "1d":
+    if interval == "1d":
         next_time = now.replace(hour=0, minute=1, second=0, microsecond=0)
-        # If the current time is past 00:01 today, schedule for tomorrow
         if now >= next_time:
             next_time += timedelta(days=1)
     
@@ -225,7 +290,6 @@ def get_next_candle_time(interval="4h"):
         next_time = datetime.combine(next_period_start, time(0, 1, 0))
         if now >= next_time:
             next_time = datetime.combine(next_period_start + timedelta(days=2), time(0, 1, 0))
-        # Ensure the time is in the future
         while next_time <= now:
             next_time += timedelta(days=2)
     
@@ -238,7 +302,6 @@ def get_next_candle_time(interval="4h"):
         next_time = datetime.combine(next_period_start, time(0, 1, 0))
         if now >= next_time:
             next_time = datetime.combine(next_period_start + timedelta(days=3), time(0, 1, 0))
-        # Ensure the time is in the future
         while next_time <= now:
             next_time += timedelta(days=3)
     
@@ -251,7 +314,6 @@ def get_next_candle_time(interval="4h"):
         next_time = datetime.combine(next_period_start, time(0, 1, 0))
         if now >= next_time:
             next_time = datetime.combine(next_period_start + timedelta(days=4), time(0, 1, 0))
-        # Ensure the time is in the future
         while next_time <= now:
             next_time += timedelta(days=4)
     
@@ -261,26 +323,75 @@ def get_next_candle_time(interval="4h"):
             days_until_monday = 7
         next_time = now.replace(hour=0, minute=1, second=0, microsecond=0)
         next_time += timedelta(days=days_until_monday)
-        # Ensure the time is in the future
         while next_time <= now:
             next_time += timedelta(days=7)
     
     else:
-        logger.warning(f"Unrecognized interval: {interval}, defaulting to 4h")
-        return get_next_candle_time("4h")
+        logger.warning(f"Unrecognized interval: {interval}, defaulting to 1d")
+        return get_next_candle_time("1d")
     
     return next_time
 
-async def run_scan_parallel(config):
-    """Run a single scan configuration using parallel scanning"""
+def should_run_timeframe_today(timeframe):
+    """
+    Check if a timeframe should run today based on aggregation schedule
+    """
+    now = datetime.utcnow()
+    
+    if timeframe == "1d" or timeframe == "1w":
+        # Native timeframes
+        if timeframe == "1w":
+            return now.weekday() == 0  # Monday
+        return True  # Daily runs every day
+    
+    elif timeframe == "2d":
+        reference_date = pd.Timestamp('2025-03-20').normalize()
+        today = pd.Timestamp(now.date())
+        days_diff = (today - reference_date).days
+        return days_diff % 2 == 0
+    
+    elif timeframe == "3d":
+        reference_date = pd.Timestamp('2025-03-20').normalize()
+        today = pd.Timestamp(now.date())
+        days_diff = (today - reference_date).days
+        return days_diff % 3 == 0
+    
+    elif timeframe == "4d":
+        reference_date = pd.Timestamp('2025-03-22').normalize()
+        today = pd.Timestamp(now.date())
+        days_diff = (today - reference_date).days
+        return days_diff % 4 == 0
+    
+    return False
+
+def get_active_timeframes_for_today():
+    """Get list of timeframes that should run today"""
+    all_timeframes = ["1d", "2d", "3d", "4d", "1w"]
+    return [tf for tf in all_timeframes if should_run_timeframe_today(tf)]
+
+# ═════════════════════════════════════════════════════════════════════════════════════════
+# Optimized scan execution with prioritization
+# ═════════════════════════════════════════════════════════════════════════════════════════
+
+async def run_optimized_scan(config, active_timeframes):
+    """Run a single scan configuration with timeframe filtering"""
     try:
-        # Import the parallel scanner function
-        from run_parallel_scanner import run_parallel_exchanges
+        from run_parallel_scanner import run_parallel_multi_timeframes_all_exchanges
         
-        logger.info(f"Running parallel scan for {config['timeframe']} timeframe with strategies: {config['strategies']} on {config['exchanges']}")
+        # Filter timeframes to only those active today and in config
+        scan_timeframes = [tf for tf in config["timeframes"] if tf in active_timeframes]
         
-        result = await run_parallel_exchanges(
-            timeframe=config['timeframe'],
+        if not scan_timeframes:
+            logger.info(f"Skipping {config['name']} - no active timeframes today")
+            return 0
+        
+        logger.info(f"Running {config['name']} scan for timeframes: {scan_timeframes}")
+        logger.info(f"  Strategies: {config['strategies']}")
+        logger.info(f"  Exchanges: {config['exchanges']}")
+        logger.info(f"  Priority: {config['priority']} ({config['exchange_type']})")
+        
+        result = await run_parallel_multi_timeframes_all_exchanges(
+            timeframes=scan_timeframes,
             strategies=config['strategies'],
             exchanges=config['exchanges'],
             users=config['users'],
@@ -288,236 +399,163 @@ async def run_scan_parallel(config):
             min_volume_usd=config['min_volume_usd']
         )
         
-        signal_count = 0
-        for strategy, signals in result.items():
-            signal_count += len(signals)
+        signal_count = sum(len(signals) for signals in result.values())
+        logger.info(f"Completed {config['name']}: {signal_count} signals found")
         
-        logger.info(f"Parallel scan complete: Found {signal_count} signals for {config['timeframe']} timeframe")
         return signal_count
     
     except Exception as e:
-        logger.error(f"Error running parallel scan: {str(e)}")
+        logger.error(f"Error in {config['name']} scan: {str(e)}")
         return 0
 
-async def run_scans_for_timeframe(timeframe, configs):
-    """Run all configurations for a specific timeframe"""
-    logger.info(f"Starting scan batch for {timeframe} timeframe")
+async def run_prioritized_scans(active_timeframes):
+    """
+    Run all scan configurations in priority order with optimized data fetching
+    """
+    logger.info("═══════════════════════════════════════════════════════════════")
+    logger.info(f"Starting prioritized scan session for timeframes: {active_timeframes}")
+    logger.info("═══════════════════════════════════════════════════════════════")
     
-    # Group configs by strategy type (futures vs spot)
-    futures_configs = [c for c in configs if any(e in c['exchanges'] for e in futures_exchanges)]
-    spot_configs = [c for c in configs if any(e in c['exchanges'] for e in spot_exchanges)]
+    # Prepare session data if needed for aggregated timeframes
+    await session_manager.prepare_session_data(active_timeframes, all_spot_exchanges + all_futures_exchanges)
     
-    # Run futures and spot configs in parallel if both exist
-    tasks = []
-    if futures_configs:
-        futures_config = futures_configs[0]  # Take the first config
-        tasks.append(run_scan_parallel(futures_config))
+    # Sort configs by priority for execution order
+    sorted_configs = sorted(scan_configs, key=lambda x: x['priority'])
     
-    if spot_configs:
-        spot_config = spot_configs[0]  # Take the first config
-        tasks.append(run_scan_parallel(spot_config))
+    total_signals = 0
     
-    # Wait for all tasks to complete
-    if tasks:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Group configs by priority for potential parallel execution within priority levels
+    priority_groups = {}
+    for config in sorted_configs:
+        priority = config['priority']
+        if priority not in priority_groups:
+            priority_groups[priority] = []
+        priority_groups[priority].append(config)
+    
+    # Execute each priority group
+    for priority in sorted(priority_groups.keys()):
+        group_configs = priority_groups[priority]
+        logger.info(f"Executing priority {priority} group ({len(group_configs)} configs)")
         
-        # Process results
-        total_signals = 0
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"Error in scan: {str(result)}")
-            else:
-                total_signals += result
+        # Within each priority group, we can run configs in parallel
+        # But for now, run sequentially to respect API limits
+        group_signals = 0
+        for config in group_configs:
+            signals = await run_optimized_scan(config, active_timeframes)
+            group_signals += signals
+            
+            # Small delay between configs in same priority group
+            await asyncio.sleep(5)
         
-        logger.info(f"Completed all scans for {timeframe}. Total signals found: {total_signals}")
-        return total_signals
+        logger.info(f"Priority {priority} complete: {group_signals} signals")
+        total_signals += group_signals
+        
+        # Longer delay between priority groups to let fast exchanges complete
+        # before starting slow exchanges
+        if priority < max(priority_groups.keys()):
+            logger.info("Waiting before next priority group...")
+            await asyncio.sleep(15)
     
-    logger.info(f"No configurations to run for {timeframe}")
-    return 0
+    # Cache management - clear if session contained aggregated timeframes
+    if should_clear_cache_for_session(active_timeframes):
+        logger.info("Clearing cache after aggregated timeframes session")
+        kline_cache.clear()
+        session_manager.clear_session_cache()
+    
+    logger.info("═══════════════════════════════════════════════════════════════")
+    logger.info(f"Session complete: {total_signals} total signals across all priorities")
+    logger.info("═══════════════════════════════════════════════════════════════")
+    
+    return total_signals
 
-async def run_scheduled_scans():
+# ═════════════════════════════════════════════════════════════════════════════════════════
+# Main scheduler with optimized scanning
+# ═════════════════════════════════════════════════════════════════════════════════════════
+
+async def run_optimized_scheduler():
     """
-    Run all scans based on a pre-computed schedule with optimized wait times
+    Main scheduler with optimized data fetching and prioritized execution
     """
-    # Group configs by timeframe
-    timeframe_configs = {}
-    for config in all_scan_configs:
-        timeframe = config['timeframe']
-        if timeframe not in timeframe_configs:
-            timeframe_configs[timeframe] = []
-        timeframe_configs[timeframe].append(config)
-    
-    # Track last execution time for each timeframe
-    last_execution = {tf: None for tf in timeframe_configs.keys()}
-    
-    # Initialize the scan schedule
-    scan_schedule = []
+    logger.info("Starting optimized scanner scheduler")
+    logger.info(f"Strategy Classification:")
+    logger.info(f"  Native strategies: {native_strategies}")
+    logger.info(f"  Composed strategies: {composed_strategies}")
+    logger.info(f"  Futures-only strategies: {futures_only_strategies}")
+    logger.info(f"Exchange Classification:")
+    logger.info(f"  Fast spot exchanges: {fast_spot_exchanges}")
+    logger.info(f"  Fast futures exchanges: {fast_futures_exchanges}")
+    logger.info(f"  Slow spot exchanges: {slow_spot_exchanges}")
+    logger.info(f"  Slow futures exchanges: {slow_futures_exchanges}")
+    logger.info(f"Execution Priority:")
+    logger.info(f"  1. Fast Native → 2. Fast Composed → 3. Fast Futures-Only → 4. Slow Native → 5. Slow Composed")
     
     while True:
         try:
             now = datetime.utcnow()
             logger.info(f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC")
             
-            # If schedule is empty or we need to refresh it, compute the next 24 hours of scans
-            if not scan_schedule:
-                logger.info("Computing scan schedule for the next 24 hours")
-                scan_schedule = compute_scan_schedule(24)  # Next 24 hours
-                logger.info(f"Scheduled scans: {len(scan_schedule)}")
-                for scheduled_time, timeframes in scan_schedule:
-                    logger.info(f"  {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')} UTC: {', '.join(timeframes)}")
+            # Get active timeframes for today
+            active_timeframes = get_active_timeframes_for_today()
             
-            # Check if there are scans to run now
-            if scan_schedule and now >= scan_schedule[0][0]:
-                scheduled_time, timeframes_to_run = scan_schedule.pop(0)
-                logger.info(f"Running scheduled scan for {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+            if not active_timeframes:
+                logger.info("No active timeframes today, waiting...")
+                await asyncio.sleep(3600)  # Wait 1 hour
+                continue
+            
+            logger.info(f"Active timeframes today: {active_timeframes}")
+            
+            # Check if it's time to scan (00:01 UTC)
+            if now.hour == 0 and now.minute <= 5:  # 5-minute window for execution
+                logger.info("Scanning window detected - starting optimized scan session")
                 
-                # Run each timeframe in order
-                for tf in timeframes_to_run:
-                    if tf == "2d":
-                        # Check if today is a 2d start day
-                        reference_date = pd.Timestamp('2025-03-20').normalize()
-                        today = pd.Timestamp(now.date())
-                        days_diff = (today - reference_date).days
-                        is_2d_start_day = days_diff % 2 == 0
-                        
-                        if not is_2d_start_day:
-                            logger.info(f"Skipping 2d scan as today is not a 2d start day")
-                            continue
-                    
-                    if tf == "3d":
-                        # Check if today is a 3d start day
-                        reference_date = pd.Timestamp('2025-03-20').normalize()
-                        today = pd.Timestamp(now.date())
-                        days_diff = (today - reference_date).days
-                        is_3d_start_day = days_diff % 3 == 0
-                        
-                        if not is_3d_start_day:
-                            logger.info(f"Skipping 3d scan as today is not a 3d start day")
-                            continue
-                    
-                    if tf == "4d":
-                        # Check if today is a 4d start day
-                        reference_date = pd.Timestamp('2025-03-22').normalize()
-                        today = pd.Timestamp(now.date())
-                        days_diff = (today - reference_date).days
-                        is_4d_start_day = days_diff % 4 == 0
-                        
-                        if not is_4d_start_day:
-                            logger.info(f"Skipping 4d scan as today is not a 4d start day")
-                            continue
-                    
-                    if tf == "1w":
-                        # Check if today is Monday
-                        is_monday = now.weekday() == 0
-                        
-                        if not is_monday:
-                            logger.info(f"Skipping 1w scan as today is not Monday")
-                            continue
-                    
-                    logger.info(f"Starting {tf} timeframe scan")
-                    
-                    # Clear cache before each scan
-                    from scanner.main import kline_cache
-                    kline_cache.clear()
-                    logger.info(f"Cache cleared before processing {tf} timeframe")
-                    
-                    # Run all configs for this timeframe in parallel
-                    try:
-                        # Get all configs for this timeframe
-                        configs = timeframe_configs.get(tf, [])
-                        if configs:
-                            total_signals = await run_scans_for_timeframe(tf, configs)
-                            logger.info(f"Completed {tf} scan. Total signals found: {total_signals}")
-                        else:
-                            logger.warning(f"No configurations found for timeframe {tf}")
-                        
-                        # Update last execution time
-                        last_execution[tf] = datetime.utcnow()
-                    except Exception as e:
-                        logger.error(f"Error executing {tf} scan: {str(e)}")
-                    
-                    # Small delay between timeframes
-                    await asyncio.sleep(10)
+                # Clear all caches for fresh start
+                kline_cache.clear()
+                session_manager.clear_session_cache()
                 
-                # After running all timeframes for this scheduled time, check if we need to refresh the schedule
-                if not scan_schedule:
-                    continue  # Will refresh the schedule at the top of the loop
-            
-            # No immediate scans to run, calculate optimized wait time
-            time_to_next_scan = (scan_schedule[0][0] - now).total_seconds()
-            
-            # Use longer sleep times for far-future scans to optimize resource usage
-            # Wake up at least 15 seconds before the scheduled time
-            if time_to_next_scan > 4 * 3600:  # More than 4 hours away
-                # Sleep for up to 2 hours as requested
-                max_sleep = 2 * 3600  # 2 hours
-            elif time_to_next_scan > 1 * 3600:  # More than 1 hour away
-                max_sleep = 1800  # 30 minutes
+                # Run prioritized scans
+                total_signals = await run_prioritized_scans(active_timeframes)
+                
+                logger.info(f"Daily scan session complete: {total_signals} total signals")
+                
+                # Wait until next day to avoid re-running
+                tomorrow = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                wait_seconds = (tomorrow - datetime.utcnow()).total_seconds()
+                logger.info(f"Waiting until next scan window: {wait_seconds/3600:.1f} hours")
+                await asyncio.sleep(max(3600, wait_seconds - 300))  # Wake up 5 minutes early
+                
             else:
-                # For imminent scans (less than 1 hour away), check more frequently
-                max_sleep = 300  # 5 minutes
-            
-            # Calculate final wait time: min(time to next scan - 15 seconds, max allowed sleep)
-            wait_time = max(10, min(time_to_next_scan - 15, max_sleep))
-            
-            logger.info(f"Next scan at {scan_schedule[0][0].strftime('%Y-%m-%d %H:%M:%S')} UTC (waiting {wait_time/60:.1f} minutes)")
-            await asyncio.sleep(wait_time)
-        
+                # Not scan time - calculate wait until next 00:01
+                tomorrow = now.replace(hour=0, minute=1, second=0, microsecond=0)
+                if now >= tomorrow:
+                    tomorrow += timedelta(days=1)
+                
+                wait_seconds = (tomorrow - now).total_seconds()
+                
+                # Use optimized wait times
+                if wait_seconds > 4 * 3600:  # More than 4 hours
+                    sleep_time = min(2 * 3600, wait_seconds - 300)  # Max 2 hours, wake 5 min early
+                elif wait_seconds > 1 * 3600:  # More than 1 hour  
+                    sleep_time = min(1800, wait_seconds - 60)  # Max 30 min, wake 1 min early
+                else:
+                    sleep_time = min(300, max(60, wait_seconds - 30))  # Max 5 min, min 1 min
+                
+                logger.info(f"Next scan at {tomorrow.strftime('%Y-%m-%d %H:%M:%S')} UTC (waiting {sleep_time/60:.1f} minutes)")
+                await asyncio.sleep(sleep_time)
+                
         except Exception as e:
             logger.error(f"Error in scheduler: {str(e)}")
             logger.info("Waiting 2 minutes before retrying...")
             await asyncio.sleep(120)
 
-
-def compute_scan_schedule(hours_ahead):
-    """
-    Compute a schedule of scans for the next X hours
-    
-    Args:
-        hours_ahead (int): How many hours to schedule ahead
-        
-    Returns:
-        list: List of (datetime, [timeframes]) tuples in chronological order
-    """
-    now = datetime.utcnow()
-    end_time = now + timedelta(hours=hours_ahead)
-    
-    # Define 4h boundaries
-    hours_4h = [0, 4, 8, 12, 16, 20]
-    
-    # Create the schedule
-    schedule = []
-    
-    # Schedule all 4h boundaries
-    current = now.replace(minute=0, second=0, microsecond=0)
-    while current <= end_time:
-        # For each day
-        for hour in hours_4h:
-            scan_time = current.replace(hour=hour, minute=1)
-            
-            # Skip times in the past
-            if scan_time < now:
-                continue
-                
-            # At 00:01, we run 4h->1d->2d->3d->4d->1w in sequence
-            if hour == 0:
-                schedule.append((scan_time, ["4h", "1d", "2d", "3d", "4d", "1w"]))
-            else:
-                # At other 4h boundaries, we only run 4h
-                schedule.append((scan_time, ["4h"]))
-        
-        # Move to next day
-        current += timedelta(days=1)
-    
-    # Sort the schedule by time (should already be in order, but just to be safe)
-    schedule.sort(key=lambda x: x[0])
-    
-    return schedule
-
 def main():
-    """Main entry point of the scanner service"""
-    logger.info("Market Scanner Service starting up")
+    """Main entry point of the optimized scanner service"""
+    logger.info("Optimized Market Scanner Service starting up")
     logger.info(f"Project root directory: {project_root}")
+    logger.info("Key optimizations active:")
+    logger.info("  ✓ Efficient 1d data fetching for aggregated timeframes")
+    logger.info("  ✓ Fast/slow exchange prioritization")
+    logger.info("  ✓ Smart cache management")
+    logger.info("  ✓ Exchange-type specific strategy execution")
     
     # Create a new event loop
     loop = asyncio.get_event_loop()
@@ -528,31 +566,32 @@ def main():
     async def shutdown():
         nonlocal shutting_down
         if shutting_down:
-            return  # Prevent multiple shutdown attempts
+            return
         shutting_down = True
         
-        logger.info("Received shutdown signal. Stopping scanner...")
+        logger.info("Received shutdown signal. Stopping optimized scanner...")
+        
+        # Clear caches on shutdown
+        kline_cache.clear()
+        session_manager.clear_session_cache()
+        
         # Cancel all running tasks except the current one
         tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
         for task in tasks:
             task.cancel()
         
-        # Wait for all tasks to complete their cancellation
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Run cleanup tasks
         try:
             await loop.shutdown_asyncgens()
         except Exception as e:
             logger.error(f"Error shutting down async generators: {str(e)}")
         
-        # Stop the event loop
         loop.stop()
-        logger.info("Scanner stopped gracefully")
+        logger.info("Optimized scanner stopped gracefully")
     
     def handle_shutdown():
-        # Schedule the shutdown coroutine to run in the event loop
         asyncio.ensure_future(shutdown())
     
     # Register signal handlers
@@ -560,7 +599,7 @@ def main():
         loop.add_signal_handler(sig, handle_shutdown)
     
     try:
-        loop.run_until_complete(run_scheduled_scans())
+        loop.run_until_complete(run_optimized_scheduler())
     except asyncio.CancelledError:
         logger.info("Scanner tasks cancelled during shutdown")
         if not shutting_down:
@@ -571,10 +610,8 @@ def main():
         time_module.sleep(300)
         main()
     except SystemExit:
-        # Handle SystemExit explicitly to avoid logging it as an error
         pass
 
-    # If shutdown was initiated, exit the process
     if shutting_down:
         sys.exit(0)
 

@@ -40,15 +40,24 @@ class KucoinClient(BaseExchangeClient):
             '4h': '4hour'
         }
 
+    # def _get_fetch_limit(self):
+    #     # Kept for compatibility; paging is driven by _required_source_count.
+    #     return {
+    #         '1w': 360,
+    #         '4d': 360,
+    #         '3d': 360,
+    #         '2d': 360,
+    #         '1d': 360,
+    #         '4h': 60
+    #     }[self.timeframe]
     def _get_fetch_limit(self):
-        # Kept for compatibility; paging is driven by _required_source_count.
         return {
-            '1w': 360,
-            '4d': 360,
-            '3d': 360,
-            '2d': 360,
-            '1d': 360,
-            '4h': 60
+            '1w': 60,      # 60 weekly candles (direct from API)
+            '4d': 240,     # 220 daily → aggregate to ~55 4d candles  
+            '3d': 180,     # 170 daily → aggregate to ~56 3d candles
+            '2d': 120,     # 110 daily → aggregate to 55 2d candles
+            '1d': 60,      # 60 daily candles (direct from API)
+            '4h': 60       # 60 4h candles (direct from API)
         }[self.timeframe]
 
     def _required_source_count(self, sma_len: int = 50, warmup: int = 10) -> int:
