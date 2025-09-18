@@ -42,7 +42,7 @@ __all__ = [
     'detect_consolidation_breakout',
     'detect_channel_breakout',
     'detect_wedge_breakout',
-    'detect_sma50_breakout'
+    'detect_sma50_breakout',
     'detect_trend_breakout',
     'detect_pin_up'
     

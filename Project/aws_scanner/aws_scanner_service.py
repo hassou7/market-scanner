@@ -264,17 +264,18 @@ session_manager = OptimizedSessionManager()
 # Enhanced scheduling logic
 # ═════════════════════════════════════════════════════════════════════════════════════════
 
-def get_next_candle_time(interval="1d"):
+def get_next_candle_time(interval="1d", now=None):
     """
     Calculate time until next candle close for a given interval
     
     Args:
         interval (str): Timeframe interval ('1d', '2d', '3d', '4d', '1w')
+        now (datetime, optional): Mock current time for testing
         
     Returns:
         datetime: Next candle close time in UTC
     """
-    now = datetime.utcnow()
+    now = now or datetime.utcnow()
     
     if interval == "1d":
         next_time = now.replace(hour=0, minute=1, second=0, microsecond=0)
@@ -328,15 +329,19 @@ def get_next_candle_time(interval="1d"):
     
     else:
         logger.warning(f"Unrecognized interval: {interval}, defaulting to 1d")
-        return get_next_candle_time("1d")
+        return get_next_candle_time("1d", now=now)
     
     return next_time
 
-def should_run_timeframe_today(timeframe):
+def should_run_timeframe_today(timeframe, now=None):
     """
     Check if a timeframe should run today based on aggregation schedule
+    
+    Args:
+        timeframe (str): Timeframe to check
+        now (datetime, optional): Mock current time for testing
     """
-    now = datetime.utcnow()
+    now = now or datetime.utcnow()
     
     if timeframe == "1d" or timeframe == "1w":
         # Native timeframes
@@ -364,10 +369,14 @@ def should_run_timeframe_today(timeframe):
     
     return False
 
-def get_active_timeframes_for_today():
-    """Get list of timeframes that should run today"""
+def get_active_timeframes_for_today(now=None):
+    """Get list of timeframes that should run today
+    
+    Args:
+        now (datetime, optional): Mock current time for testing
+    """
     all_timeframes = ["1d", "2d", "3d", "4d", "1w"]
-    return [tf for tf in all_timeframes if should_run_timeframe_today(tf)]
+    return [tf for tf in all_timeframes if should_run_timeframe_today(tf, now=now)]
 
 # ═════════════════════════════════════════════════════════════════════════════════════════
 # Optimized scan execution with prioritization

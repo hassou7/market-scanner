@@ -1,0 +1,54 @@
+2025-09-18 11:19:22 - INFO: Starting Jupyter simulation of AWS Scanner Service
+2025-09-18 11:19:22 - INFO: Mocked time: 2025-09-22 00:01:00 UTC
+2025-09-18 11:19:22 - INFO: Strategy Classification:
+2025-09-18 11:19:22 - INFO:   Native strategies: ['confluence', 'consolidation_breakout', 'channel_breakout', 'loaded_bar', 'trend_breakout', 'pin_up', 'sma50_breakout']
+2025-09-18 11:19:22 - INFO:   Composed strategies: ['hbs_breakout', 'vs_wakeup']
+2025-09-18 11:19:22 - INFO:   Futures-only strategies: ['reversal_bar', 'pin_down']
+2025-09-18 11:19:22 - INFO: Exchange Classification:
+2025-09-18 11:19:22 - INFO:   Fast spot exchanges: ['binance_spot', 'bybit_spot', 'gateio_spot']
+2025-09-18 11:19:22 - INFO:   Fast futures exchanges: ['binance_futures', 'bybit_futures', 'gateio_futures']
+2025-09-18 11:19:22 - INFO:   Slow spot exchanges: ['kucoin_spot', 'mexc_spot']
+2025-09-18 11:19:22 - INFO:   Slow futures exchanges: ['mexc_futures']
+2025-09-18 11:19:22 - INFO: Execution Priority:
+2025-09-18 11:19:22 - INFO:   1. Fast Native → 2. Fast Composed → 3. Fast Futures-Only → 4. Slow Native → 5. Slow Composed
+2025-09-18 11:20:11 - INFO: Starting Jupyter simulation of AWS Scanner Service
+2025-09-18 11:20:11 - INFO: Mocked time: 2025-09-22 00:01:00 UTC
+2025-09-18 11:20:11 - INFO: Strategy Classification:
+2025-09-18 11:20:11 - INFO:   Native strategies: ['confluence', 'consolidation_breakout', 'channel_breakout', 'loaded_bar', 'trend_breakout', 'pin_up', 'sma50_breakout']
+2025-09-18 11:20:11 - INFO:   Composed strategies: ['hbs_breakout', 'vs_wakeup']
+2025-09-18 11:20:11 - INFO:   Futures-only strategies: ['reversal_bar', 'pin_down']
+2025-09-18 11:20:11 - INFO: Exchange Classification:
+2025-09-18 11:20:11 - INFO:   Fast spot exchanges: ['binance_spot', 'bybit_spot', 'gateio_spot']
+2025-09-18 11:20:11 - INFO:   Fast futures exchanges: ['binance_futures', 'bybit_futures', 'gateio_futures']
+2025-09-18 11:20:11 - INFO:   Slow spot exchanges: ['kucoin_spot', 'mexc_spot']
+2025-09-18 11:20:11 - INFO:   Slow futures exchanges: ['mexc_futures']
+2025-09-18 11:20:11 - INFO: Execution Priority:
+2025-09-18 11:20:11 - INFO:   1. Fast Native → 2. Fast Composed → 3. Fast Futures-Only → 4. Slow Native → 5. Slow Composed
+2025-09-18 11:20:18 - INFO: Starting Jupyter simulation of AWS Scanner Service
+2025-09-18 11:20:18 - INFO: Mocked time: 2025-09-22 00:01:00 UTC
+2025-09-18 11:20:18 - INFO: Strategy Classification:
+2025-09-18 11:20:18 - INFO:   Native strategies: ['confluence', 'consolidation_breakout', 'channel_breakout', 'loaded_bar', 'trend_breakout', 'pin_up', 'sma50_breakout']
+2025-09-18 11:20:18 - INFO:   Composed strategies: ['hbs_breakout', 'vs_wakeup']
+2025-09-18 11:20:18 - INFO:   Futures-only strategies: ['reversal_bar', 'pin_down']
+2025-09-18 11:20:18 - INFO: Exchange Classification:
+2025-09-18 11:20:18 - INFO:   Fast spot exchanges: ['binance_spot', 'bybit_spot', 'gateio_spot']
+2025-09-18 11:20:18 - INFO:   Fast futures exchanges: ['binance_futures', 'bybit_futures', 'gateio_futures']
+2025-09-18 11:20:18 - INFO:   Slow spot exchanges: ['kucoin_spot', 'mexc_spot']
+2025-09-18 11:20:18 - INFO:   Slow futures exchanges: ['mexc_futures']
+2025-09-18 11:20:18 - INFO: Execution Priority:
+2025-09-18 11:20:18 - INFO:   1. Fast Native → 2. Fast Composed → 3. Fast Futures-Only → 4. Slow Native → 5. Slow Composed
+2025-09-18 11:21:18 - INFO: Starting Jupyter simulation of AWS Scanner Service
+2025-09-18 11:21:18 - INFO: Mocked time: 2025-09-22 00:01:00 UTC
+2025-09-18 11:21:18 - INFO: Strategy Classification:
+2025-09-18 11:21:18 - INFO:   Native strategies: ['confluence', 'consolidation_breakout', 'channel_breakout', 'loaded_bar', 'trend_breakout', 'pin_up', 'sma50_breakout']
+2025-09-18 11:21:18 - INFO:   Composed strategies: ['hbs_breakout', 'vs_wakeup']
+2025-09-18 11:21:18 - INFO:   Futures-only strategies: ['reversal_bar', 'pin_down']
+2025-09-18 11:21:18 - INFO: Exchange Classification:
+2025-09-18 11:21:18 - INFO:   Fast spot exchanges: ['binance_spot', 'bybit_spot', 'gateio_spot']
+2025-09-18 11:21:18 - INFO:   Fast futures exchanges: ['binance_futures', 'bybit_futures', 'gateio_futures']
+2025-09-18 11:21:18 - INFO:   Slow spot exchanges: ['kucoin_spot', 'mexc_spot']
+2025-09-18 11:21:18 - INFO:   Slow futures exchanges: ['mexc_futures']
+2025-09-18 11:21:18 - INFO: Execution Priority:
+2025-09-18 11:21:18 - INFO:   1. Fast Native → 2. Fast Composed → 3. Fast Futures-Only → 4. Slow Native → 5. Slow Composed
+2025-09-18 12:34:18 - ERROR: Main execution error: name 'EXCHANGE_CLIENTS' is not defined
+2025-09-18 12:35:01 - ERROR: Main execution error: name 'EXCHANGE_CLIENTS' is not defined
