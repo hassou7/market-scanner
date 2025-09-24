@@ -2,7 +2,6 @@
 
 """
 Custom trading strategies for cryptocurrency market analysis.
-
 This module provides various pattern detection strategies including:
 - Volume surge detection
 - Weak uptrend detection  
@@ -15,6 +14,7 @@ This module provides various pattern detection strategies including:
 - 50sma breakout
 - Trend breakout (from HBS indicator vX)
 - Pin up pattern detection (from HBS indicator vX)
+- Bullish engulfing reversal detection
 """
 
 # Import all strategy detection functions
@@ -30,6 +30,7 @@ from .wedge_breakout import detect_wedge_breakout
 from .sma50_breakout import detect_sma50_breakout
 from .trend_breakout import detect_trend_breakout
 from .pin_up import detect_pin_up
+from .bullish_engulfing import detect_bullish_engulfing
 
 # Export all functions for easy import
 __all__ = [
@@ -44,6 +45,6 @@ __all__ = [
     'detect_wedge_breakout',
     'detect_sma50_breakout',
     'detect_trend_breakout',
-    'detect_pin_up'
-    
+    'detect_pin_up',
+    'detect_bullish_engulfing'
 ]

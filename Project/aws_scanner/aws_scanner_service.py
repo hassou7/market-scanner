@@ -1,4 +1,6 @@
+#aws_scanner/aws_scanner_service.py
 #!/usr/bin/env python3
+
 """
 Optimized AWS Scanner Service
 
@@ -7,6 +9,8 @@ Key optimizations:
 2. Fast/slow exchange categorization with prioritized execution
 3. Proper cache management for aggregated sessions
 4. Exchange-type specific strategy execution
+5. Force last_closed bar scanning for production stability
+6. Bullish engulfing strategy integration
 
 Usage:
     python aws_scanner_service.py [--debug]
@@ -101,13 +105,14 @@ all_spot_exchanges = fast_spot_exchanges + slow_spot_exchanges
 all_futures_exchanges = fast_futures_exchanges + slow_futures_exchanges
 
 # ═════════════════════════════════════════════════════════════════════════════════════════
-# Strategy configurations by type and priority
+# Strategy configurations by type and priority (with bullish_engulfing integrated)
 # ═════════════════════════════════════════════════════════════════════════════════════════
 
 # Strategy classification
 native_strategies = [
     "confluence", "consolidation_breakout", "channel_breakout", 
-    "loaded_bar", "trend_breakout", "pin_up", "sma50_breakout"
+    "loaded_bar", "trend_breakout", "pin_up", "sma50_breakout", 
+    "bullish_engulfing"
 ]
 
 composed_strategies = [
@@ -379,11 +384,11 @@ def get_active_timeframes_for_today(now=None):
     return [tf for tf in all_timeframes if should_run_timeframe_today(tf, now=now)]
 
 # ═════════════════════════════════════════════════════════════════════════════════════════
-# Optimized scan execution with prioritization
+# Optimized scan execution with prioritization (FORCE last_closed bar for production)
 # ═════════════════════════════════════════════════════════════════════════════════════════
 
 async def run_optimized_scan(config, active_timeframes):
-    """Run a single scan configuration with timeframe filtering"""
+    """Run a single scan configuration with timeframe filtering - FORCE last_closed bar"""
     try:
         from run_parallel_scanner import run_parallel_multi_timeframes_all_exchanges
         
@@ -398,6 +403,7 @@ async def run_optimized_scan(config, active_timeframes):
         logger.info(f"  Strategies: {config['strategies']}")
         logger.info(f"  Exchanges: {config['exchanges']}")
         logger.info(f"  Priority: {config['priority']} ({config['exchange_type']})")
+        logger.info(f"  Check bar: last_closed (AWS production mode)")
         
         result = await run_parallel_multi_timeframes_all_exchanges(
             timeframes=scan_timeframes,
@@ -405,7 +411,8 @@ async def run_optimized_scan(config, active_timeframes):
             exchanges=config['exchanges'],
             users=config['users'],
             send_telegram=config['send_telegram'],
-            min_volume_usd=config['min_volume_usd']
+            min_volume_usd=config['min_volume_usd'],
+            check_bar="last_closed"  # FORCE last_closed for AWS production
         )
         
         signal_count = sum(len(signals) for signals in result.values())
@@ -420,9 +427,11 @@ async def run_optimized_scan(config, active_timeframes):
 async def run_prioritized_scans(active_timeframes):
     """
     Run all scan configurations in priority order with optimized data fetching
+    FORCE last_closed bar scanning for production stability
     """
     logger.info("═══════════════════════════════════════════════════════════════")
     logger.info(f"Starting prioritized scan session for timeframes: {active_timeframes}")
+    logger.info("Production mode: FORCE last_closed bar scanning")
     logger.info("═══════════════════════════════════════════════════════════════")
     
     # Prepare session data if needed for aggregated timeframes
@@ -497,6 +506,7 @@ async def run_optimized_scheduler():
     logger.info(f"  Slow futures exchanges: {slow_futures_exchanges}")
     logger.info(f"Execution Priority:")
     logger.info(f"  1. Fast Native → 2. Fast Composed → 3. Fast Futures-Only → 4. Slow Native → 5. Slow Composed")
+    logger.info(f"Production Mode: FORCE last_closed bar scanning")
     
     while True:
         try:
@@ -521,7 +531,7 @@ async def run_optimized_scheduler():
                 kline_cache.clear()
                 session_manager.clear_session_cache()
                 
-                # Run prioritized scans
+                # Run prioritized scans with FORCED last_closed bar scanning
                 total_signals = await run_prioritized_scans(active_timeframes)
                 
                 logger.info(f"Daily scan session complete: {total_signals} total signals")
@@ -565,6 +575,8 @@ def main():
     logger.info("  ✓ Fast/slow exchange prioritization")
     logger.info("  ✓ Smart cache management")
     logger.info("  ✓ Exchange-type specific strategy execution")
+    logger.info("  ✓ PRODUCTION MODE: Force last_closed bar scanning")
+    logger.info("  ✓ Bullish engulfing strategy integrated")
     
     # Create a new event loop
     loop = asyncio.get_event_loop()

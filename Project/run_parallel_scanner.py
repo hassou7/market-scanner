@@ -9,6 +9,11 @@ Runs market scans on cryptocurrency exchanges with a phased orchestrator:
 Keeps your per-exchange symbol/strategy parallelism intact, but avoids
 cross-exchange burst that causes timeouts on KuCoin/MEXC.
 
+Added check_bar parameter:
+- "last_closed": Only scan last closed bar (default for production/AWS)
+- "current": Only scan current bar  
+- "both": Scan both current and last closed bars (for development)
+
 Env overrides:
   FAST_MAX_EXCHANGES (default 4)
   SLOW_MAX_EXCHANGES (default 2)
@@ -68,7 +73,7 @@ from utils.config import get_telegram_config
 # ──────────────────────────────────────────────────────────────────────────────
 
 futures_exchanges = ["binance_futures", "bybit_futures", "gateio_futures", "mexc_futures"]
-spot_exchanges = ["binance_spot", "bybit_spot", "gateio_spot", "mexc_spot", "kucoin_spot"]
+spot_exchanges = ["binance_spot", "bybit_spot", "kucoin_spot", "mexc_spot", "gateio_spot"]
 spot_exchanges_1w = ["binance_spot", "bybit_spot", "gateio_spot"]
 sf_exchanges_1w = ["sf_kucoin_1w", "sf_mexc_1w"]
 
@@ -110,6 +115,13 @@ def validate_sf_exchange_timeframe(exchanges, timeframes):
                 )
     return True
 
+def validate_check_bar(check_bar):
+    """Validate check_bar parameter"""
+    valid_values = ["last_closed", "current", "both"]
+    if check_bar not in valid_values:
+        raise ValueError(f"Invalid check_bar value: {check_bar}. Must be one of: {valid_values}")
+    return True
+
 def print_header(text):
     logging.info(f"\n{'='*80}")
     logging.info(f"  {text}")
@@ -123,12 +135,12 @@ async def _stagger(ms=250):
     import random
     await asyncio.sleep(random.uniform(0, ms/1000))
 
-async def scan_exchange(exchange, timeframe, strategies, telegram_config, min_volume_usd):
+async def scan_exchange(exchange, timeframe, strategies, telegram_config, min_volume_usd, check_bar):
     """Run scan on a single exchange with progress logging"""
     try:
         start_time = datetime.now().strftime("%H:%M:%S")
-        logging.info(f"[{start_time}] Starting scan on {exchange} for {timeframe} timeframe...")
-        results = await run_scanner(exchange, timeframe, strategies, telegram_config, min_volume_usd)
+        logging.info(f"[{start_time}] Starting scan on {exchange} for {timeframe} timeframe (check_bar={check_bar})...")
+        results = await run_scanner(exchange, timeframe, strategies, telegram_config, min_volume_usd, check_bar)
         signal_count = sum(len(res) for res in results.values())
         end_time = datetime.now().strftime("%H:%M:%S")
         logging.info(f"[{end_time}] ✓ Completed {exchange} scan: {signal_count} signals found")
@@ -139,7 +151,7 @@ async def scan_exchange(exchange, timeframe, strategies, telegram_config, min_vo
         return exchange, {}
 
 async def _run_exchange_phase(exchanges, timeframe, strategies, telegram_config, min_volume_usd,
-                              max_parallel_exchanges: int, label: str, stagger_ms: int):
+                              max_parallel_exchanges: int, label: str, stagger_ms: int, check_bar: str):
     """Run a phase (fast or slow exchanges) with limited concurrent exchanges."""
     print_header(f"PHASE: {label} ({len(exchanges)} exchanges)")
     if not exchanges:
@@ -151,7 +163,7 @@ async def _run_exchange_phase(exchanges, timeframe, strategies, telegram_config,
     async def _guarded(exchange):
         async with sem:
             await _stagger(stagger_ms)
-            return await scan_exchange(exchange, timeframe, strategies, telegram_config, min_volume_usd)
+            return await scan_exchange(exchange, timeframe, strategies, telegram_config, min_volume_usd, check_bar)
 
     tasks = [_guarded(ex) for ex in exchanges]
     return await asyncio.gather(*tasks)
@@ -161,12 +173,23 @@ async def _run_exchange_phase(exchanges, timeframe, strategies, telegram_config,
 # ──────────────────────────────────────────────────────────────────────────────
 
 async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["default"],
-                                 send_telegram=True, min_volume_usd=None, save_to_csv=False):
+                                 send_telegram=True, min_volume_usd=None, save_to_csv=False, check_bar="last_closed"):
     """
     Run scans on multiple exchanges in parallel, phased by API speed profile.
+    
+    Args:
+        timeframe: Timeframe to scan (e.g., "1d", "1w")
+        strategies: List of strategies to run
+        exchanges: List of exchanges (None for default)
+        users: List of users for telegram notifications
+        send_telegram: Enable telegram notifications
+        min_volume_usd: Minimum volume filter
+        save_to_csv: Save results to CSV
+        check_bar: Which bar to analyze - "last_closed" (default), "current", or "both"
     """
     start_time = datetime.now()
     users = users if isinstance(users, (list, tuple)) else ["default"]
+    validate_check_bar(check_bar)
 
     default_exchanges = [
         "binance_futures", "bybit_futures", "gateio_futures", "mexc_futures",
@@ -186,6 +209,7 @@ async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["
     logging.info(f"• Exchanges: {', '.join(exchanges)}")
     logging.info(f"• Timeframe: {timeframe}")
     logging.info(f"• Strategies: {', '.join(strategies)}")
+    logging.info(f"• Check bar: {check_bar}")
     logging.info(f"• Notifications: {'Enabled' if send_telegram else 'Disabled'}")
     logging.info(f"• Recipients: {', '.join(users)}")
     logging.info(f"• Save to CSV: {'Enabled' if save_to_csv else 'Disabled'}")
@@ -205,14 +229,14 @@ async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["
     fast_results = await _run_exchange_phase(
         exchanges=fast, timeframe=timeframe, strategies=strategies,
         telegram_config=telegram_config, min_volume_usd=min_volume_usd,
-        max_parallel_exchanges=FAST_MAX_EX, label="FAST", stagger_ms=STAGGER_MS
+        max_parallel_exchanges=FAST_MAX_EX, label="FAST", stagger_ms=STAGGER_MS, check_bar=check_bar
     )
 
     # Then SLOW exchanges (gentler parallelism)
     slow_results = await _run_exchange_phase(
         exchanges=slow, timeframe=timeframe, strategies=strategies,
         telegram_config=telegram_config, min_volume_usd=min_volume_usd,
-        max_parallel_exchanges=SLOW_MAX_EX, label="SLOW", stagger_ms=STAGGER_MS
+        max_parallel_exchanges=SLOW_MAX_EX, label="SLOW", stagger_ms=STAGGER_MS, check_bar=check_bar
     )
 
     exchange_results = [*fast_results, *slow_results]
@@ -266,14 +290,25 @@ async def run_parallel_exchanges(timeframe, strategies, exchanges=None, users=["
 
 async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, exchanges=None,
                                                       users=["default"], send_telegram=True,
-                                                      min_volume_usd=None, save_to_csv=False):
+                                                      min_volume_usd=None, save_to_csv=False, check_bar="last_closed"):
     """
     Run scans on multiple timeframes across multiple exchanges with FAST→SLOW phasing per timeframe.
+    
+    Args:
+        timeframes: List of timeframes to scan
+        strategies: List of strategies to run
+        exchanges: List of exchanges (None for default)
+        users: List of users for telegram notifications
+        send_telegram: Enable telegram notifications
+        min_volume_usd: Minimum volume filter
+        save_to_csv: Save results to CSV
+        check_bar: Which bar to analyze - "last_closed" (default), "current", or "both"
     """
     os.environ["DISABLE_PROGRESS"] = "1"  # keep logs clean for multi runs
 
     start_time = datetime.now()
     users = users if isinstance(users, (list, tuple)) else ["default"]
+    validate_check_bar(check_bar)
 
     default_exchanges = [
         "binance_futures", "bybit_futures", "gateio_futures", "mexc_futures",
@@ -299,6 +334,7 @@ async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, ex
     logging.info(f"• Exchanges: {', '.join(exchanges)}")
     logging.info(f"• Timeframes: {', '.join(timeframes)}")
     logging.info(f"• Strategies: {', '.join(strategies)}")
+    logging.info(f"• Check bar: {check_bar}")
     logging.info(f"• Notifications: {'Enabled' if send_telegram else 'Disabled'}")
     logging.info(f"• Recipients: {', '.join(users)}")
     logging.info(f"• Save to CSV: {'Enabled' if save_to_csv else 'Disabled'}")
@@ -318,13 +354,13 @@ async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, ex
         fast_phase = await _run_exchange_phase(
             exchanges=fast, timeframe=timeframe, strategies=strategies,
             telegram_config=telegram_config, min_volume_usd=min_volume_usd,
-            max_parallel_exchanges=FAST_MAX_EX, label=f"FAST {timeframe}", stagger_ms=STAGGER_MS
+            max_parallel_exchanges=FAST_MAX_EX, label=f"FAST {timeframe}", stagger_ms=STAGGER_MS, check_bar=check_bar
         )
 
         slow_phase = await _run_exchange_phase(
             exchanges=slow, timeframe=timeframe, strategies=strategies,
             telegram_config=telegram_config, min_volume_usd=min_volume_usd,
-            max_parallel_exchanges=SLOW_MAX_EX, label=f"SLOW {timeframe}", stagger_ms=STAGGER_MS
+            max_parallel_exchanges=SLOW_MAX_EX, label=f"SLOW {timeframe}", stagger_ms=STAGGER_MS, check_bar=check_bar
         )
 
         exchange_results = [*fast_phase, *slow_phase]
@@ -377,7 +413,8 @@ async def run_parallel_multi_timeframes_all_exchanges(timeframes, strategies, ex
 # Convenience wrapper used by dashboards (unchanged API)
 # ──────────────────────────────────────────────────────────────────────────────
 
-async def run_scan(timeframes, exchanges, strategies, min_volume_usd=None):
+async def run_scan(timeframes, exchanges, strategies, min_volume_usd=None, check_bar="last_closed"):
+    """Convenience wrapper for dashboards with check_bar parameter"""
     results = []
     result = await run_parallel_multi_timeframes_all_exchanges(
         timeframes=timeframes,
@@ -385,7 +422,8 @@ async def run_scan(timeframes, exchanges, strategies, min_volume_usd=None):
         exchanges=exchanges,
         users=["default"],
         send_telegram=False,
-        min_volume_usd=min_volume_usd
+        min_volume_usd=min_volume_usd,
+        check_bar=check_bar
     )
     # NOTE: result is a dict[strategy] -> list[dict]; flatten if needed
     for strategy, rows in result.items():
@@ -401,45 +439,3 @@ async def run_scan(timeframes, exchanges, strategies, min_volume_usd=None):
                 'Scan_Time': pd.Timestamp.now(tz='UTC')
             })
     return pd.DataFrame(results)
-
-# # ──────────────────────────────────────────────────────────────────────────────
-# # CLI
-# # ──────────────────────────────────────────────────────────────────────────────
-
-# if __name__ == "__main__":
-#     if len(sys.argv) < 3:
-#         print("Usage: python run_parallel_scanner.py <timeframe> <strategies> [exchanges] [users] [send_telegram] [save_to_csv]")
-#         print()
-#         print("Examples:")
-#         print("  python run_parallel_scanner.py 1w 'loaded_bar,breakout_bar' 'sf_kucoin_1w,sf_mexc_1w' 'default' true true")
-#         print("  python run_parallel_scanner.py 4h 'confluence,test_bar' 'binance_spot,bybit_spot' 'default' true false")
-#         print("  python run_parallel_scanner.py 1d 'consolidation_breakout,channel_breakout' 'all' 'default' true true")
-#         sys.exit(1)
-
-#     timeframe = sys.argv[1]
-#     strategies = sys.argv[2].split(',')
-
-#     if len(sys.argv) > 3:
-#         exchange_arg = sys.argv[3]
-#         if exchange_arg == 'all':
-#             exchanges = all_exchanges
-#         elif exchange_arg == 'sf_1w':
-#             exchanges = sf_exchanges_1w
-#         elif exchange_arg == 'spot':
-#             exchanges = spot_exchanges
-#         elif exchange_arg == 'futures':
-#             exchanges = futures_exchanges
-#         else:
-#             exchanges = exchange_arg.split(',')
-#     else:
-#         exchanges = None
-
-#     users = sys.argv[4].split(',') if len(sys.argv) > 4 else ["default"]
-#     send_telegram = sys.argv[5].lower() == 'true' if len(sys.argv) > 5 else True
-#     save_to_csv = sys.argv[6].lower() == 'true' if len(sys.argv) > 6 else False
-
-#     try:
-#         asyncio.run(run_parallel_exchanges(timeframe, strategies, exchanges, users, send_telegram, save_to_csv=save_to_csv))
-#     except ValueError as e:
-#         logging.error(f"Configuration error: {e}")
-#         sys.exit(1)

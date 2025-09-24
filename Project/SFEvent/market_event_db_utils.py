@@ -19,13 +19,14 @@ class MarketEvent(Base):
     Exchange = Column(String(40), nullable=False)
     Timeframe = Column(String(10), nullable=False)
     Date = Column(DateTime, nullable=False)
+    InsertionDate = Column(DateTime, nullable=False)
     TradingViewLink = Column(String(512), nullable=False)
     Close = Column(DECIMAL(38, 8), default=Decimal('0'))
     VolumeUsd = Column(DECIMAL(38, 2), default=Decimal('0'))
     CloseOffLow = Column(DECIMAL(5, 2), default=Decimal('0'))
     PinDown = Column(Boolean, default=False)
     Confluence = Column(Boolean, default=False)
-    IsEngulfing = Column(Boolean, default=False)
+    IsConfReversalEngulfing = Column(Boolean, default=False)
     ConsolidationBo = Column(Boolean, default=False)
     ConsolidationBoDirectionBo = Column(Integer, default=0)
     ConsolidationBoBoxAge = Column(Integer, default=0)
@@ -47,6 +48,7 @@ class MarketEvent(Base):
     PinUp = Column(Boolean, default=False)
     TrendBo = Column(Boolean, default=False)
     LoadedBar = Column(Boolean, default=False)
+    IsBullishEngulfing = Column(Boolean, default=False)
 
 
 def insert_market_event(event: MarketEvent, conn_string: str):
@@ -55,18 +57,27 @@ def insert_market_event(event: MarketEvent, conn_string: str):
     Session = sessionmaker(bind=engine)
     session = Session()
     try:
+        # Ensure Id exists
         if getattr(event, "Id", None) in (None, ""):
             event.Id = uuid.uuid4()
+
+        # Always set insertion timestamp
+        event.InsertionDate = datetime.utcnow()
+
+        # Prepare row data
         data = {c.name: getattr(event, c.name) for c in MarketEvent.__table__.columns}
+
         stmt = insert(MarketEvent).values(**data).on_conflict_do_nothing(
             index_elements=['Symbol', 'Exchange', 'Timeframe', 'Date']
         )
         res = session.execute(stmt)
         session.commit()
+
         inserted = (res.rowcount or 0) > 0
         if inserted:
             print(f"✅ MarketEvent inséré : {event.Symbol} @ {event.Exchange} "
-                  f"({event.Timeframe}) | Close={event.Close} | Date={event.Date}")
+                  f"({event.Timeframe}) | Close={event.Close} | "
+                  f"Date={event.Date} | InsertionDate={event.InsertionDate}")
         else:
             print(f"⚠️ Doublon ignoré : {event.Symbol} @ {event.Exchange} "
                   f"({event.Timeframe}) | Date={event.Date}")

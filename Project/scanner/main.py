@@ -1,3 +1,5 @@
+#scanner/main.py
+
 import asyncio
 import logging
 import sys
@@ -50,10 +52,22 @@ def _normalize_strength_label(label: str) -> str:
     return "Regular"
 
 class UnifiedScanner:
-    def __init__(self, exchange_client, strategies, telegram_config=None, min_volume_usd=None):
+    def __init__(self, exchange_client, strategies, telegram_config=None, min_volume_usd=None, check_bar="last_closed"):
+        """
+        Initialize UnifiedScanner with bar selection parameter
+        
+        Args:
+            exchange_client: Exchange client instance
+            strategies: List of strategies to run
+            telegram_config: Telegram configuration
+            min_volume_usd: Minimum volume threshold
+            check_bar: Which bar to analyze - "current", "last_closed", or "both"
+                      Default is "last_closed" for production, "both" for development
+        """
         self.exchange_client = exchange_client
         self.strategies = strategies
         self.telegram_config = telegram_config or {}
+        self.check_bar = check_bar
         
         timeframe = exchange_client.timeframe
         self.min_volume_usd = min_volume_usd if min_volume_usd is not None else VOLUME_THRESHOLDS.get(timeframe, 50000)
@@ -85,11 +99,24 @@ class UnifiedScanner:
             'loaded_bar': 'Loaded Bar',
             'test_bar': 'Test Bar',
             'trend_breakout': 'Trend Breakout Pattern',
-            'pin_up': 'Pin Up Pattern'
+            'pin_up': 'Pin Up Pattern',
+            'bullish_engulfing': 'Bullish Engulfing Reversal'
         }
         
         # Cache VSA params to avoid repeated imports
         self._vsa_params_cache = {}
+
+    def _get_bars_to_check(self):
+        """Get list of (check_bar, is_current) tuples based on check_bar parameter"""
+        if self.check_bar == "current":
+            return [(-1, True)]
+        elif self.check_bar == "last_closed":
+            return [(-2, False)]
+        elif self.check_bar == "both":
+            return [(-2, False), (-1, True)]
+        else:
+            # Default to last_closed for safety
+            return [(-2, False)]
 
     def _get_exchange_name(self):
         class_name = self.exchange_client.__class__.__name__
@@ -195,47 +222,33 @@ class UnifiedScanner:
             
             detected_results = []
             
-            # Process current bar detection
-            if condition.iloc[-1]:
-                idx = df.index[-1]
-                volume_mean = df['volume'].rolling(7).mean().iloc[-1]
-                bar_range = df['high'].iloc[-1] - df['low'].iloc[-1]
-                close_off_low = (df['close'].iloc[-1] - df['low'].iloc[-1]) / bar_range * 100 if bar_range > 0 else 0
-                volume_usd_current = df['volume'].iloc[-1] * df['close'].iloc[-1]
-                arctan_ratio = arctan_ratio_series.iloc[-1] if not pd.isna(arctan_ratio_series.iloc[-1]) else 0.0
-                
-                detected_results.append({
-                    'symbol': symbol,
-                    'date': idx,
-                    'close': df['close'].iloc[-1],
-                    'volume': volume_usd_current,
-                    'volume_usd': volume_usd_current,  # Added for database
-                    'volume_ratio': df['volume'].iloc[-1] / volume_mean if volume_mean > 0 else 0,
-                    'close_off_low': close_off_low,
-                    'current_bar': True,
-                    'arctan_ratio': arctan_ratio
-                })
+            # Check bars based on check_bar parameter
+            bars_to_check = self._get_bars_to_check()
             
-            # Process last closed bar detection
-            if len(df) > 1 and condition.iloc[-2]:
-                idx = df.index[-2]
-                volume_mean = df['volume'].rolling(7).mean().iloc[-2]
-                bar_range = df['high'].iloc[-2] - df['low'].iloc[-2]
-                close_off_low = (df['close'].iloc[-2] - df['low'].iloc[-2]) / bar_range * 100 if bar_range > 0 else 0
-                volume_usd_closed = df['volume'].iloc[-2] * df['close'].iloc[-2]
-                arctan_ratio = arctan_ratio_series.iloc[-2] if not pd.isna(arctan_ratio_series.iloc[-2]) else 0.0
-                
-                detected_results.append({
-                    'symbol': symbol,
-                    'date': idx,
-                    'close': df['close'].iloc[-2],
-                    'volume': volume_usd_closed,
-                    'volume_usd': volume_usd_closed,  # Added for database
-                    'volume_ratio': df['volume'].iloc[-2] / volume_mean if volume_mean > 0 else 0,
-                    'close_off_low': close_off_low,
-                    'current_bar': False,
-                    'arctan_ratio': arctan_ratio
-                })
+            for check_bar, is_current in bars_to_check:
+                bar_idx = check_bar
+                if abs(bar_idx) > len(condition) - 1:
+                    continue
+                    
+                if condition.iloc[bar_idx]:
+                    idx = df.index[bar_idx]
+                    volume_mean = df['volume'].rolling(7).mean().iloc[bar_idx]
+                    bar_range = df['high'].iloc[bar_idx] - df['low'].iloc[bar_idx]
+                    close_off_low = (df['close'].iloc[bar_idx] - df['low'].iloc[bar_idx]) / bar_range * 100 if bar_range > 0 else 0
+                    volume_usd_current = df['volume'].iloc[bar_idx] * df['close'].iloc[bar_idx]
+                    arctan_ratio = arctan_ratio_series.iloc[bar_idx] if not pd.isna(arctan_ratio_series.iloc[bar_idx]) else 0.0
+                    
+                    detected_results.append({
+                        'symbol': symbol,
+                        'date': idx,
+                        'close': df['close'].iloc[bar_idx],
+                        'volume': volume_usd_current,
+                        'volume_usd': volume_usd_current,
+                        'volume_ratio': df['volume'].iloc[bar_idx] / volume_mean if volume_mean > 0 else 0,
+                        'close_off_low': close_off_low,
+                        'current_bar': is_current,
+                        'arctan_ratio': arctan_ratio
+                    })
             
             return detected_results[-1] if detected_results else None
             
@@ -248,9 +261,15 @@ class UnifiedScanner:
         try:
             def run_detection():
                 from custom_strategies import detect_volume_surge
-                if len(df) > 1:
-                    detected, result = detect_volume_surge(df, check_bar=-2)
-                    return detected, result
+                
+                # Check based on parameter, but volume surge typically uses last closed bar
+                check_bars = self._get_bars_to_check()
+                for check_bar, is_current in check_bars:
+                    if len(df) > abs(check_bar):
+                        detected, result = detect_volume_surge(df, check_bar=check_bar)
+                        if detected:
+                            result['current_bar'] = is_current
+                            return detected, result
                 return False, {}
             
             loop = asyncio.get_event_loop()
@@ -266,7 +285,7 @@ class UnifiedScanner:
                     'volume_ratio': result['volume_ratio'],
                     'score': result['score'],
                     'price_extreme': result['price_extreme'],
-                    'current_bar': False
+                    'current_bar': result.get('current_bar', False)
                 }
             return None
             
@@ -322,15 +341,17 @@ class UnifiedScanner:
                 from custom_strategies import detect_confluence
                 confluence_results = []
                 
-                # Check last closed bar and current bar
-                for check_bar, bar_type in [(-2, 'last_closed'), (-1, 'current')]:
+                # Check bars based on parameter
+                bars_to_check = self._get_bars_to_check()
+                
+                for check_bar, is_current in bars_to_check:
                     if len(df) > abs(check_bar):
                         detected_bull, result_bull = detect_confluence(df, check_bar=check_bar, is_bullish=True)
                         if detected_bull or result_bull.get('is_engulfing_reversal', False):
                             confluence_results.append({
                                 'detected_bull': detected_bull,
                                 'result_bull': result_bull,
-                                'bar_type': bar_type
+                                'bar_type': 'current' if is_current else 'last_closed'
                             })
                 
                 return confluence_results
@@ -374,16 +395,64 @@ class UnifiedScanner:
             logging.error(f"Error in confluence for {symbol}: {e}")
             return None
 
+    async def _detect_bullish_engulfing(self, df, symbol):
+        """Detect bullish engulfing in thread pool"""
+        try:
+            def run_detection():
+                from custom_strategies import detect_bullish_engulfing
+                bullish_engulfing_results = []
+                
+                # Check bars based on parameter
+                bars_to_check = self._get_bars_to_check()
+                
+                for check_bar, is_current in bars_to_check:
+                    if len(df) > abs(check_bar) + 50:  # Need at least 50 candles
+                        detected, result = detect_bullish_engulfing(df, check_bar=check_bar)
+                        if detected:
+                            result['current_bar'] = is_current
+                            bullish_engulfing_results.append(result)
+                
+                return bullish_engulfing_results
+            
+            loop = asyncio.get_event_loop()
+            bullish_engulfing_results = await loop.run_in_executor(self.thread_pool, run_detection)
+            
+            if bullish_engulfing_results:
+                # Take the most recent result (prioritize current bar if both exist)
+                result = bullish_engulfing_results[-1]
+                
+                return {
+                    'symbol': symbol,
+                    'date': result['date'],
+                    'close': result['close'],
+                    'high': result['high'],
+                    'low': result['low'],
+                    'volume_ratio': result['volume_ratio'],
+                    'close_position': result['close_position'],
+                    'is_buying_power': result['is_buying_power'],
+                    'pr_low_21': result['pr_low_21'],
+                    'pr_hl2_13': result['pr_hl2_13'],
+                    'pr_spread_21': result['pr_spread_21'],
+                    'current_bar': result['current_bar'],
+                    'volume_usd': result['close'] * result['volume_ratio'] * 1000  # Approximate volume USD
+                }
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error in bullish_engulfing for {symbol}: {e}")
+            return None
+
     async def _detect_pattern_strategy(self, strategy, df, symbol):
         """Generic pattern strategy detector for consolidation, breakouts, etc."""
         try:
             def run_detection():
                 results = []
+                bars_to_check = self._get_bars_to_check()
                 
                 if strategy == 'consolidation':
                     from custom_strategies import detect_consolidation
-                    # Check both bars
-                    for check_bar, is_current in [(-2, False), (-1, True)]:
+                    # Check specified bars
+                    for check_bar, is_current in bars_to_check:
                         if len(df) > abs(check_bar) + 22:  # Ensure enough data
                             detected, result = detect_consolidation(df, check_bar=check_bar)
                             if detected and not result.get('breakout', False):
@@ -391,7 +460,7 @@ class UnifiedScanner:
                 
                 elif strategy == 'consolidation_breakout':
                     from custom_strategies import detect_consolidation_breakout
-                    for check_bar, is_current in [(-2, False), (-1, True)]:
+                    for check_bar, is_current in bars_to_check:
                         if len(df) > abs(check_bar):
                             detected, result = detect_consolidation_breakout(df, check_bar=check_bar)
                             if detected:
@@ -404,7 +473,7 @@ class UnifiedScanner:
                 
                 elif strategy == 'channel':
                     from custom_strategies import detect_channel
-                    for check_bar, is_current in [(-2, False), (-1, True)]:
+                    for check_bar, is_current in bars_to_check:
                         if len(df) > abs(check_bar) + 22:
                             detected, result = detect_channel(df, check_bar=check_bar)
                             if detected:
@@ -412,7 +481,7 @@ class UnifiedScanner:
                 
                 elif strategy == 'channel_breakout':
                     from custom_strategies import detect_channel_breakout
-                    for check_bar, is_current in [(-2, False), (-1, True)]:
+                    for check_bar, is_current in bars_to_check:
                         if len(df) > abs(check_bar) + 22:
                             detected, result = detect_channel_breakout(df, check_bar=check_bar)
                             if detected:
@@ -420,7 +489,7 @@ class UnifiedScanner:
                 
                 elif strategy == 'wedge_breakout':
                     from custom_strategies import detect_wedge_breakout
-                    for check_bar, is_current in [(-2, False), (-1, True)]:
+                    for check_bar, is_current in bars_to_check:
                         if len(df) > abs(check_bar) + 22:
                             detected, result = detect_wedge_breakout(df, check_bar=check_bar)
                             if detected:
@@ -428,7 +497,7 @@ class UnifiedScanner:
                 
                 elif strategy == 'sma50_breakout':
                     from custom_strategies import detect_sma50_breakout
-                    for check_bar, is_current in [(-2, False), (-1, True)]:
+                    for check_bar, is_current in bars_to_check:
                         if len(df) > abs(check_bar):
                             # allow pre_breakout; strength only for "regular"
                             detected, result = detect_sma50_breakout(df, use_pre_breakout=True, check_bar=check_bar)
@@ -444,7 +513,7 @@ class UnifiedScanner:
                 
                 elif strategy == 'trend_breakout':
                     from custom_strategies import detect_trend_breakout
-                    for check_bar, is_current in [(-2, False), (-1, True)]:
+                    for check_bar, is_current in bars_to_check:
                         if len(df) > abs(check_bar):
                             detected, result = detect_trend_breakout(df, check_bar=check_bar)
                             if detected:
@@ -452,7 +521,7 @@ class UnifiedScanner:
                 
                 elif strategy == 'pin_up':
                     from custom_strategies import detect_pin_up
-                    for check_bar, is_current in [(-2, False), (-1, True)]:
+                    for check_bar, is_current in bars_to_check:
                         if len(df) > abs(check_bar):
                             detected, result = detect_pin_up(df, check_bar=check_bar)
                             if detected:
@@ -461,8 +530,8 @@ class UnifiedScanner:
                 elif strategy == 'hbs_breakout':
                     from custom_strategies import detect_consolidation_breakout, detect_confluence, detect_channel_breakout, detect_sma50_breakout
                     
-                    # Check both bars for HBS combo
-                    for check_bar, is_current in [(-2, False), (-1, True)]:
+                    # Check specified bars for HBS combo
+                    for check_bar, is_current in bars_to_check:
                         if len(df) > abs(check_bar) + 5:
                             cb_detected, cb_result = detect_consolidation_breakout(df, check_bar=check_bar)
                             chb_detected, chb_result = detect_channel_breakout(df, check_bar=check_bar)
@@ -521,8 +590,8 @@ class UnifiedScanner:
 
                 elif strategy == 'vs_wakeup':
                     from custom_strategies import detect_consolidation, detect_confluence
-                    # Check both bars
-                    for check_bar, is_current in [(-2, False), (-1, True)]:
+                    # Check specified bars
+                    for check_bar, is_current in bars_to_check:
                         if len(df) > abs(check_bar) + 22:  # Ensure enough data for consolidation
                             cons_detected, cons_result = detect_consolidation(df, check_bar=check_bar)
                             if cons_detected and not cons_result.get('breakout', False):
@@ -651,6 +720,8 @@ class UnifiedScanner:
                 task = self._detect_pin_down(df, symbol)
             elif strategy == 'confluence':
                 task = self._detect_confluence(df, symbol)
+            elif strategy == 'bullish_engulfing':
+                task = self._detect_bullish_engulfing(df, symbol)
             elif strategy in pattern_strategies:
                 task = self._detect_pattern_strategy(strategy, df, symbol)
             else:
@@ -686,10 +757,11 @@ class UnifiedScanner:
         """Send scan results to database - only for specified strategies"""
         from utils.config import DATABASE_CONFIG
         
-        # Only process these strategies for database insertion
+        # Only process these strategies for database insertion (including bullish_engulfing)
         SUPPORTED_STRATEGIES = {
             "confluence", "consolidation_breakout", "channel_breakout", 
-            "sma50_breakout", "pin_up", "trend_breakout", "loaded_bar"
+            "sma50_breakout", "pin_up", "trend_breakout", "loaded_bar",
+            "bullish_engulfing"
         }
         
         if not DATABASE_CONFIG.get("enabled", False):
@@ -788,7 +860,7 @@ class UnifiedScanner:
             # Initialize all flags / fields
             PinDown=False,
             Confluence=False,
-            IsEngulfing=False,
+            IsConfReversalEngulfing=False,
             ConsolidationBo=False,
             ConsolidationBoDirectionBo=0,
             ConsolidationBoBoxAge=0,
@@ -809,7 +881,8 @@ class UnifiedScanner:
             Sma50BoStrength="",           # ← string: "Strong" / "Regular"
             PinUp=False,                  
             TrendBo=False,                
-            LoadedBar=False 
+            LoadedBar=False,
+            IsBullishEngulfing=False        # New field for bullish engulfing
         )
 
 
@@ -857,6 +930,9 @@ class UnifiedScanner:
     
             elif strategy == 'loaded_bar':
                 event.LoadedBar = True
+                
+            elif strategy == 'bullish_engulfing':
+                event.IsBullishEngulfing  = True
        
             else:
                 logging.debug(f"Strategy {strategy} not mapped to database columns")
@@ -919,6 +995,23 @@ class UnifiedScanner:
                         f"{volume_period} Volume: ${result.get('volume', 0):,.2f}\n"
                         f"Close Off Low: {result.get('close_off_low', 0):,.1f}%\n"
                         f"Angular Ratio: {result.get('arctan_ratio', np.nan):.2f}\n"
+                        f"{'='*30}\n"
+                    )
+                elif strategy == 'bullish_engulfing':
+                    volume_usd = result.get('volume_usd', 0)
+                    price_formatted = f"${result.get('close', 0):,.2f}"
+                    volume_formatted = f"${volume_usd:,.1f}M" if volume_usd >= 1000000 else f"${volume_usd:,.0f}"
+                    
+                    signal_message = (
+                        f"<a href='{tv_link}'>{symbol}</a> | {price_formatted} | Vol: {volume_formatted}\n"
+                        f"Time: {date} | {bar_status}\n"
+                        f"----\n"
+                        f"Close Position: {result.get('close_position', 0):,.2f}\n"
+                        f"Volume Ratio: {result.get('volume_ratio', 0):,.2f}x\n"
+                        f"PR Low 21: {result.get('pr_low_21', 0):,.1f}%\n"
+                        f"PR HL2 13: {result.get('pr_hl2_13', 0):,.1f}%\n"
+                        f"PR Spread 21: {result.get('pr_spread_21', 0):,.1f}%\n"
+                        f"Buying Power: {'✓' if result.get('is_buying_power', False) else '✗'}\n"
                         f"{'='*30}\n"
                     )
                 elif strategy == 'hbs_breakout':
@@ -1148,7 +1241,7 @@ def clear_all_cache():
     kline_cache.clear()
     logging.info(f"Cleared all {count} cache entries")
 
-async def run_scanner(exchange, timeframe, strategies, telegram_config=None, min_volume_usd=None):
+async def run_scanner(exchange, timeframe, strategies, telegram_config=None, min_volume_usd=None, check_bar="last_closed"):
     """Main entry point - same API as original"""
     from exchanges import (MexcFuturesClient, GateioFuturesClient, BinanceFuturesClient, 
                           BybitFuturesClient, BinanceSpotClient, BybitSpotClient, 
@@ -1176,5 +1269,5 @@ async def run_scanner(exchange, timeframe, strategies, telegram_config=None, min
         raise ValueError(f"Unsupported exchange: {exchange}")
     
     client = client_class(timeframe=timeframe)
-    scanner = UnifiedScanner(client, strategies, telegram_config, min_volume_usd)
+    scanner = UnifiedScanner(client, strategies, telegram_config, min_volume_usd, check_bar=check_bar)
     return await scanner.scan_all_markets()
