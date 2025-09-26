@@ -81,6 +81,6 @@ def get_telegram_config(strategies, users):
     return config
 
 DATABASE_CONFIG = {
-    "enabled": True,  # Set to False to disable database insertion
+    "enabled": False,  # Set to False to disable database insertion
     "connection_string": "postgresql+psycopg2://sfeventuser:krpd!45t5@c1348.synology.infomaniak.ch:10656/sf_event_db",
 }

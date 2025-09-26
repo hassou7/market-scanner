@@ -49,7 +49,7 @@ def _atr_wilder(h: pd.Series, l: pd.Series, c: pd.Series, length: int = 7) -> pd
     return tr.ewm(alpha=1/length, adjust=False).mean()
 
 
-def ama(series, period: int = 2, period_fast: int = 2, period_slow: int = 30, epsilon: float = 1e-10) -> pd.Series:
+def ama(series, period: int = 2, period_fast: int = 1, period_slow: int = 15, epsilon: float = 1e-10) -> pd.Series:
     """Kaufman's Adaptive Moving Average variant (as in your HBS)."""
     src = np.asarray(series, dtype=float)
     n = period + 1

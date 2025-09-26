@@ -100,7 +100,7 @@ class UnifiedScanner:
             'test_bar': 'Test Bar',
             'trend_breakout': 'Trend Breakout Pattern',
             'pin_up': 'Pin Up Pattern',
-            'bullish_engulfing': 'Bullish Engulfing Reversal'
+            'bullish_engulfing': 'Bullish Engulfing'
         }
         
         # Cache VSA params to avoid repeated imports

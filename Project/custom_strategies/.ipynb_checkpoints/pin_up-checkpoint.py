@@ -82,10 +82,14 @@ def detect_pin_up(df, check_bar=-2):
     df['bullishbottom_high_prev'] = df['high'].shift(1).where(bullishbottom).ffill()
     
     # Pin up condition - exact PineScript logic
-    pin_up = ((df['close'] > df['bullishbottom_high']) & 
-             (df['high'] > df['bullishbottom_high_prev']) & 
-             (bars_since(bullishbottom.fillna(False)) < 4) & 
-             (~df['bearishcandle']))
+    pin_up = (
+        (df['close'] > df['bullishbottom_high']) &
+        (df['high'] > df['bullishbottom_high_prev']) &
+        (df['close'] > df['high'].shift(1)) &   # <-- new condition
+        (bars_since(bullishbottom.fillna(False)) < 4) &
+        (~df['bearishcandle'])
+    )
+
     
     pin_up_cond = pin_up & (pin_up != pin_up.shift(1))
     
